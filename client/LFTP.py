@@ -18,7 +18,15 @@ class Client:
     def receiveSegnment(self):
         pass
 
-    def handshake(self, serverName, port):
+    def sendFile(self, serverName, port, file):
+        pass
+
+    def receiveFile(self, serverName, port, file, fileName):
+        pass
+
+    # If isSend is True, third handshake will include the file data
+    # and the third handshake will be in charge of sendFile function
+    def handshake(self, serverName, port, isSend = False):
         # First handshake
         # For safety, seq is picked randomly
         SYN = 1
@@ -39,11 +47,13 @@ class Client:
             except socket.timeout as timeout:
                 print(timeout)
 
-        # Third handshake
-        SYN = 0
-        ACK = SEQ + 1
-        self.clientSEQ += 1
-        client.sendSegment(SYN, ACK, self.clientSEQ, serverName, port)
+        if not isSend:
+            # Third handshake
+            SYN = 0
+            ACK = SEQ + 1
+            self.clientSEQ += 1
+            client.sendSegment(SYN, ACK, self.clientSEQ, serverName, port)
+
         return True
 
 
@@ -61,10 +71,14 @@ if __name__ == "__main__":
         with open(fileName, "r") as file:
             # TCP construction
             if client.handshake(serverName, defaultPort):
-                print("TCP construction successfule")
+                print("TCP construct successfully")
+                client.sendFile(serverName, defaultPort, file)
 
     elif funcName == "lget":
         with open(fileName, "w") as file:
-            pass
+            # TCP construction
+            if client.handshake(serverName, defaultPort):
+                print("TCP construct successfully")
+                client.receiveFile(serverName, defaultPort, file, fileName)
     else:
         print("Your input parameter is wrong!")
