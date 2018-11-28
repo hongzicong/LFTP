@@ -6,47 +6,45 @@ import random
 
 class Client:
 
-    def __init__(self, serverName):
+    def __init__(self):
         self.fileSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.defaultPort = 5555
+        self.clientSEQ = random.randint(0, 100)
 
-    def sendSegment(self, SYN, ACK, SEQ):
-        self.fileSocket.sendto(b"%d*%d*%d" % (SYN, ACK, SEQ), (serverName, self.defaultPort))
+    def sendSegment(self, SYN, ACK, SEQ, serverName, port, data = b""):
+        # * is the character used to split
+        self.fileSocket.sendto(b"%d*%d*%d*%b" % (SYN, ACK, SEQ, data), (serverName, port))
+        print("send TCP %d*%d*%d*%s to %s:%s" % (SYN, ACK, SEQ, data, serverName, port))
 
     def receiveSegnment(self):
         pass
 
-    def handshake(self):
+    def handshake(self, serverName, port):
         # First handshake
         # For safety, seq is picked randomly
         SYN = 1
         ACK = 1
-        SEQ = random.randint(0, 100)
+        SEQ = -1
 
         firstComplete = False
         while not firstComplete:
-            self.sendSegment(SYN, ACK, SEQ)
+            self.sendSegment(SYN, ACK, self.clientSEQ, serverName, port)
 
-            # * is the character used to split
-            # datagram format: SYN * seq
-            client.send(SYN, ACK, SEQ)
-
-            # Third hand shake
-            self.fileSocket.settimeout(1)
+            self.fileSocket.settimeout(3)
             try:
                 data, addr = self.fileSocket.recvfrom(1024)
                 SYN, ACK, SEQ = list(map(int, data.split(b"*")))
 
-                if SYN == 1 and ACK == SEQ + 1:
+                if SYN == 1 and ACK == self.clientSEQ + 1:
                     firstComplete = True
             except socket.timeout as timeout:
-                pass
+                print(timeout)
 
         # Third handshake
         SYN = 0
-        ACK, SEQ = SEQ, ACK
-        ACK += 1
-        client.sendSegment(SYN, ACK, SEQ)
+        ACK = SEQ + 1
+        self.clientSEQ += 1
+        client.sendSegment(SYN, ACK, self.clientSEQ, serverName, port)
+        return True
 
 
 if __name__ == "__main__":
@@ -56,13 +54,14 @@ if __name__ == "__main__":
     funcName = sys.argv[1]
     serverName = sys.argv[2]
     fileName = sys.argv[3]
-
-    client = Client(serverName)
+    defaultPort = 5555
+    client = Client()
 
     if funcName == "lsend":
         with open(fileName, "r") as file:
             # TCP construction
-            client.handshake()
+            if client.handshake(serverName, defaultPort):
+                print("TCP construction successfule")
 
     elif funcName == "lget":
         with open(fileName, "w") as file:

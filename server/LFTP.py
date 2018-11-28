@@ -24,16 +24,29 @@ if __name__ == "__main__":
         data, addr = server.receiveSegment()
 
         # TCP construction : SYN is 1
-        if data[0] == b'1':
+        if list(map(int, data.split(b"*")[0:3]))[0] == 1:
             # Second hand shake
-            SYN, ACK, SEQ = list(map(int, data.split(b"*")))
+            SYN, ACK, SEQ = list(map(int, data.split(b"*")[0:3]))
             ACK = SEQ + 1
             SEQ = random.randint(0, 100)
-
+            print("a")
             #  New a buffer for the address
             server.addr_info[addr] = b""
 
-            server.sendSegment(SYN, ACK, SEQ, addr)
+            secondComplete = False
+            while not secondComplete:
+                server.fileSocket.sendto(b"%d*%d*%d" % (SYN, ACK, SEQ), addr)
+                print("send TCP %d*%d*%d*%s to %s:%s" % (SYN, ACK, SEQ, "", addr[0], addr[1]))
+                server.fileSocket.settimeout(1)
+                try:
+                    data, addr = server.fileSocket.recvfrom(1024)
+                    SYN, ACK, SEQ = list(map(int, data.split(b"*")[0:3]))
+
+                    if SYN == 0 and ACK == SEQ + 1:
+                        secondComplete = True
+                except socket.timeout as timeout:
+                    print(timeout)
+            print("TCP construction successful")
 
         # SYN is 0
         elif data[0] == b'0':
