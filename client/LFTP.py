@@ -2,6 +2,7 @@
 import socket
 import sys
 import random
+import logging
 
 
 class Client:
@@ -18,8 +19,46 @@ class Client:
     def receiveSegnment(self):
         pass
 
-    def sendFile(self, serverName, port, file):
-        pass
+    def sendFile(self, serverName, port, file, fileName):
+
+        MSSlen = 1000
+        self.clientSEQ += 1
+
+        while True:
+            # MSS is 1000
+            data = file.read(MSSlen)
+
+            # End of file
+            if data == "":
+                return True
+
+            SYN = 0
+            # ACK is useless so we set it as 0
+            ACK = 0
+            SEQ = self.clientSEQ
+            sendBase = 0
+
+            dataComplete = False
+            delayTime = 0.75
+            while not dataComplete:
+                self.sendSegment(SYN, ACK, SEQ, fileName + data[sendBase:MSSlen], serverName, port)
+
+                self.fileSocket.settimeout(delayTime)
+                try:
+                    data, addr = self.fileSocket.recvfrom(1024)
+                    SYN, ACK, SEQ = list(map(int, data.split(b"*")[0:3]))
+
+                    # There are currently any not-yet-acknowledged segments
+                    if ACK > self.clientSEQ + sendBase:
+                        sendBase = ACK - self.clientSEQ
+                    # The segment has been sent
+                    elif ACK == self.clientSEQ + MSSlen:
+                        dataComplete = True
+
+                except socket.timeout as timeout:
+                    # double the delay when time out
+                    delayTime *= 2
+                    print(timeout)
 
     def receiveFile(self, serverName, port, file, fileName):
         pass
@@ -34,17 +73,20 @@ class Client:
         SEQ = -1
 
         firstComplete = False
+        delayTime = 0.75
         while not firstComplete:
             self.sendSegment(SYN, ACK, self.clientSEQ, serverName, port)
 
-            self.fileSocket.settimeout(3)
+            self.fileSocket.settimeout(delayTime)
             try:
                 data, addr = self.fileSocket.recvfrom(1024)
-                SYN, ACK, SEQ = list(map(int, data.split(b"*")))
+                SYN, ACK, SEQ = list(map(int, data.split(b"*")[0:3]))
 
                 if SYN == 1 and ACK == self.clientSEQ + 1:
                     firstComplete = True
+                    self.serverSEQ = SEQ
             except socket.timeout as timeout:
+                delayTime *= 2
                 print(timeout)
 
         if not isSend:
@@ -70,14 +112,14 @@ if __name__ == "__main__":
     if funcName == "lsend":
         with open(fileName, "r") as file:
             # TCP construction
-            if client.handshake(serverName, defaultPort):
+            if client.handshake(serverName, defaultPort, True):
                 print("TCP construct successfully")
                 client.sendFile(serverName, defaultPort, file)
 
     elif funcName == "lget":
         with open(fileName, "w") as file:
             # TCP construction
-            if client.handshake(serverName, defaultPort):
+            if client.handshake(serverName, defaultPort, False):
                 print("TCP construct successfully")
                 client.receiveFile(serverName, defaultPort, file, fileName)
     else:
