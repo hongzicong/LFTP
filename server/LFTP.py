@@ -15,16 +15,23 @@ class Interface:
         self.data = []
         self.lockForBase = threading.Lock()
 
-    def sendSegment(self, SYN, FUNC, data=b""):
-        # * is the character used to split
-        self.fileSocket.sendto(b"%d*%d*%d*%d*%b" % (SYN, self.ACK, self.SEQ, FUNC, data), self.addr)
-        print(b"%d*%d*%d*%d*%b" % (SYN, self.ACK, self.SEQ, FUNC, data))
+    def receiveSegnment(self):
+        seg, addr = self.fileSocket.recvfrom(1024)
+        SYN, ACK, SEQ, FUNC = list(map(int, seg.split(b"*")[0:4]))
+        data = seg.split(b"*")[4]
+        print("receive segment from %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d" % (addr[0], addr[1], SYN, ACK, SEQ, FUNC))
+        return SYN, ACK, SEQ, FUNC, data, addr
 
-    def reliableSendSegment(self, SYN, FUNC, data=b""):
+    def sendSegment(self, SYN, ACK, SEQ, FUNC, data=b""):
+        # * is the character used to split
+        self.fileSocket.sendto(b"%d*%d*%d*%d*%b" % (SYN, ACK, SEQ, FUNC, data), self.addr)
+        print("send segment to %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d" % (self.addr[0], self.addr[1], SYN, ACK, SEQ, FUNC))
+
+    def reliableSendSegment(self, SYN, ACK, SEQ, FUNC, data=b""):
         dataComplete = False
         delayTime = 1
         while not dataComplete:
-            self.sendSegment(SYN, FUNC, data)
+            self.sendSegment(SYN, ACK, SEQ, FUNC, data)
 
             self.fileSocket.settimeout(delayTime)
             try:
@@ -44,6 +51,22 @@ class Interface:
                 delayTime *= 2
                 print(timeoutErr)
 
+    def receiveFile(self, fileName):
+        with open(fileName, 'wb') as file:
+            while True:
+                rtSYN, rtACK, rtSEQ, rtFUNC, data, addr = self.receiveSegnment()
+                print("%d %d" % (rtSEQ, self.ACK))
+                if rtSEQ == self.ACK:
+                    file.write(data)
+                    self.ACK += len(data)
+                    print("%d" % len(data))
+                    self.sendSegment(SYN, self.ACK, self.SEQ, rtFUNC)
+                    break
+
+    def sendFile(self, file_name):
+        with open(file_name, 'rb') as file:
+            pass
+
 
 class Server:
 
@@ -57,11 +80,18 @@ class Server:
         clientInterface = Interface(self.fileSocket, addr, ACK, SEQ)
         self.addr_info[addr] = clientInterface
 
+    def deleteInterface(self, addr):
+        self.addr_info.pop(addr)
+
     def getInterface(self, addr):
         return self.addr_info[addr]
 
     def receiveSegment(self):
-        return self.fileSocket.recvfrom(1024)
+        seg, addr = self.fileSocket.recvfrom(1024)
+        SYN, ACK, SEQ, FUNC = list(map(int, seg.split(b"*")[0:4]))
+        data = seg.split(b"*")[4]
+        print("receive segment from %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d" % (addr[0], addr[1], SYN, ACK, SEQ, FUNC))
+        return SYN, ACK, SEQ, FUNC, data, addr
 
 
 if __name__ == "__main__":
@@ -70,27 +100,31 @@ if __name__ == "__main__":
     server = Server()
 
     while True:
-        data, addr = server.receiveSegment()
+        SYN, ACK, SEQ, FUNC, data, addr = server.receiveSegment()
 
         # TCP construction : SYN is 1
-        if list(map(int, data.split(b"*")[0:3]))[0] == 1 and addr not in server.addr_info:
+        if SYN == 1 and addr not in server.addr_info:
 
             # Second hand shake
-            SYN, ACK, SEQ = list(map(int, data.split(b"*")[0:3]))
-            ACK = SEQ + 1
-            SEQ = random.randint(0, 100)
+            rtACK = SEQ + 1
+            rtSEQ = random.randint(0, 100)
 
-            server.newInterface(addr, ACK, SEQ)
-            server.getInterface(addr).reliableSendSegment(SYN, 0)
-            print("TCP construction successful")
+            server.newInterface(addr, rtACK, rtSEQ)
+            server.getInterface(addr).sendSegment(SYN, rtACK, rtSEQ, 0)
 
         # SYN is 0 and already TCP construction
-        elif list(map(int, data.split(b"*")[0:3]))[0] == 0 and addr in server.addr_info:
-            if data.split(b"*")[3][0:4] == b"SEND":
-                pass
-            elif data.split(b"*")[3][0:5] == b"RECEIVE":
-                pass
-            else:
-                pass
+        # FUNC 1
+        elif FUNC == 1 and addr in server.addr_info:
+            fileName = data.decode("UTF-8")
+            print("receive file %s from %s:%s" % (fileName, addr[0], addr[1]))
+            server.getInterface(addr).ACK = SEQ + len(data)
+            server.getInterface(addr).sendSegment(SYN, server.getInterface(addr).ACK, server.getInterface(addr).SEQ, FUNC)
+            server.getInterface(addr).receiveFile(fileName)
+            server.deleteInterface(addr)
+
+        # SYN is 0 and already TCP construction
+        # FUNC 0
+        elif FUNC == 0 and addr in server.addr_info:
+            server.getInterface(addr).sendFile(data.split(b"*")[3])
 
     fileSocket.close()

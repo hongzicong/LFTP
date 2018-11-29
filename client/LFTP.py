@@ -11,19 +11,17 @@ class Client:
 
     def __init__(self):
         self.fileSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.clientSEQ = random.randint(0, 100)
         self.fileSocket.bind(("127.0.0.1", 9999))
-        # SR
+        self.clientSEQ = 0
+
         self.MSSlen = 100
         self.winSize = 10 * self.MSSlen
-        self.sendBase = 0
-        self.nextSeq = 0
         self.lockForBase = threading.Lock()
 
     def sendSegment(self, SYN, ACK, SEQ, FUNC, serverName, port, data=b""):
         # * is the character used to split
         self.fileSocket.sendto(b"%d*%d*%d*%d*%b" % (SYN, ACK, SEQ, FUNC, data), (serverName, port))
-        print(b"%d*%d*%d*%d*%b" % (SYN, ACK, SEQ, FUNC, data))
+        print("send segment to %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d" % (serverName, port, SYN, ACK, SEQ, FUNC))
 
     def reliableSendSegment(self, SYN, ACK, SEQ, FUNC, serverName, port, data=b""):
         dataComplete = False
@@ -33,16 +31,20 @@ class Client:
 
             self.fileSocket.settimeout(delayTime)
             try:
-                rtData, addr = self.fileSocket.recvfrom(1024)
-                rtSYN, rtACK, rtSEQ, rtFUNC = list(map(int, rtData.split(b"*")[0:4]))
+                rtSYN, rtACK, rtSEQ, rtFUNC, rtData, addr = self.receiveSegnment()
 
-                # There are currently any not-yet-acknowledged segments
-                if (len(data) == 0 and rtACK == SEQ + 1) or (len(data) != 0 and rtACK == SEQ + len(data)):
+                # TCP construction
+                if len(data) == 0 and rtACK == SEQ + 1:
                     dataComplete = True
+                # File data
+                elif len(data) != 0 and rtACK == SEQ + len(data):
+                    dataComplete = True
+                    '''
+                    # Send file
                     if FUNC == 1 and self.lockForBase.acquire():
-                        if rtACK == self.sendBase + len(data) + 1:
-                            self.sendBase += rtACK
+                        self.sendFlag[SEQ // self.MSSlen] = True
                         self.lockForBase.release()
+                    '''
 
             except socket.timeout as timeoutErr:
                 # double the delay when time out
@@ -50,9 +52,53 @@ class Client:
                 print(timeoutErr)
 
     def receiveSegnment(self):
-        pass
+        seg, addr = self.fileSocket.recvfrom(1024)
+        SYN, ACK, SEQ, FUNC = list(map(int, seg.split(b"*")[0:4]))
+        data = seg.split(b"*")[4]
+        print("receive segment from %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d" % (addr[0], addr[1], SYN, ACK, SEQ, FUNC))
+        return SYN, ACK, SEQ, FUNC, data, addr
 
     def sendFile(self, serverName, port, file, fileName):
+
+        self.clientSEQ += 1
+
+        SYN = 0
+        # ACK is useless so we set it as 0
+        ACK = 0
+        SEQ = self.clientSEQ
+        FUNC = 1
+
+        # send file name to server for send
+        print("send the file name")
+        self.reliableSendSegment(SYN, ACK, SEQ, FUNC, serverName, port, bytes(fileName, "UTF-8"))
+        self.clientSEQ += len(fileName)
+
+        # split file into MSS
+        # data buffer
+        data = []
+        beginSEQ = self.clientSEQ
+        endSEQ = beginSEQ
+        print("begin to split file into MSS")
+        while True:
+            temp = file.read(self.MSSlen)
+            endSEQ += len(temp)
+            if temp == b'':
+                break
+            data.append(temp)
+        print("finish")
+
+        # begin to send file
+        self.sendBase = self.clientSEQ
+        self.nextSEQ = self.clientSEQ
+        while True:
+            self.reliableSendSegment(SYN, ACK, self.nextSEQ, 1, serverName, port, data[(self.nextSEQ - beginSEQ) // self.MSSlen])
+            self.clientSEQ += len(data[(self.nextSEQ - beginSEQ) // self.MSSlen])
+            self.nextSEQ = self.clientSEQ
+            # finish data transmission
+            if self.nextSEQ >= endSEQ:
+                break
+
+    def receiveFile(self, serverName, port, file, fileName):
 
         # data buffer
         data = []
@@ -63,31 +109,10 @@ class Client:
         # ACK is useless so we set it as 0
         ACK = 0
         SEQ = self.clientSEQ
+        FUNC = 0
 
-        # send file name to server
-        self.reliableSendSegment(SYN, ACK, SEQ, serverName, port, b"SEND %s" % bytes(fileName, "UTF-8"))
-
-        # split file into MSS
-        while True:
-            temp = file.read(self.MSSlen)
-            if temp == '':
-                break
-            data.append(bytes(temp, "UTF-8"))
-
-        # send file
-        while True:
-            if self.nextSeq - self.sendBase < self.winSize and self.nextSeq < len(data):
-                t = threading.Thread(target=self.reliableSendSegment(SYN, ACK, SEQ, serverName, port, data[self.nextSeq]))
-                t.start()
-                self.nextSeq += self.MSSlen
-            # finish data transmission
-            if self.sendBase >= len(data) * self.MSSlen:
-                break
-            # the main thread sleep for 0.5 second
-            time.sleep(0.5)
-
-    def receiveFile(self, serverName, port, file, fileName):
-        pass
+        # send file name to server for receive
+        self.reliableSendSegment(SYN, ACK, SEQ, FUNC, serverName, port, b"%s" % bytes(fileName, "UTF-8"))
 
     # If isSend is True, third handshake will include the file data
     # and the third handshake will be in charge of sendFile function
@@ -114,14 +139,14 @@ if __name__ == "__main__":
     client = Client()
 
     if funcName == "lsend":
-        with open(fileName, "r") as file:
+        with open(fileName, "rb") as file:
             # TCP construction
             if client.handshake(serverName, defaultPort, True):
                 print("TCP construct successfully")
-                # client.sendFile(serverName, defaultPort, file, fileName)
+                client.sendFile(serverName, defaultPort, file, fileName)
 
     elif funcName == "lget":
-        with open(fileName, "w") as file:
+        with open(fileName, "wb") as file:
             # TCP construction
             if client.handshake(serverName, defaultPort, False):
                 print("TCP construct successfully")
