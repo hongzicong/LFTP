@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 import socket
 import sys
-import random
 import logging
 import threading
-import time
 
 
 class Client:
@@ -14,13 +12,14 @@ class Client:
         self.fileSocket.bind(("127.0.0.1", 9999))
         self.clientSEQ = 0
 
-        self.MSSlen = 100
+        self.MSSlen = 1000
         self.winSize = 10 * self.MSSlen
         self.lockForBase = threading.Lock()
 
     def sendSegment(self, SYN, ACK, SEQ, FUNC, serverName, port, data=b""):
         # * is the character used to split
         self.fileSocket.sendto(b"%d*%d*%d*%d*%b" % (SYN, ACK, SEQ, FUNC, data), (serverName, port))
+        print(len(b"%d*%d*%d*%d*%b" % (SYN, ACK, SEQ, FUNC, data)))
         print("send segment to %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d" % (serverName, port, SYN, ACK, SEQ, FUNC))
 
     def reliableSendSegment(self, SYN, ACK, SEQ, FUNC, serverName, port, data=b""):
@@ -28,7 +27,6 @@ class Client:
         delayTime = 1
         while not dataComplete:
             self.sendSegment(SYN, ACK, SEQ, FUNC, serverName, port, data)
-
             self.fileSocket.settimeout(delayTime)
             try:
                 rtSYN, rtACK, rtSEQ, rtFUNC, rtData, addr = self.receiveSegnment()
@@ -39,12 +37,6 @@ class Client:
                 # File data
                 elif len(data) != 0 and rtACK == SEQ + len(data):
                     dataComplete = True
-                    '''
-                    # Send file
-                    if FUNC == 1 and self.lockForBase.acquire():
-                        self.sendFlag[SEQ // self.MSSlen] = True
-                        self.lockForBase.release()
-                    '''
 
             except socket.timeout as timeoutErr:
                 # double the delay when time out
@@ -52,7 +44,7 @@ class Client:
                 print(timeoutErr)
 
     def receiveSegnment(self):
-        seg, addr = self.fileSocket.recvfrom(1024)
+        seg, addr = self.fileSocket.recvfrom(4096)
         SYN, ACK, SEQ, FUNC = list(map(int, seg.split(b"*")[0:4]))
         data = seg.split(b"*")[4]
         print("receive segment from %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d" % (addr[0], addr[1], SYN, ACK, SEQ, FUNC))
@@ -68,26 +60,28 @@ class Client:
         SEQ = self.clientSEQ
         FUNC = 1
 
-        # send file name to server for send
-        print("send the file name")
-        self.reliableSendSegment(SYN, ACK, SEQ, FUNC, serverName, port, bytes(fileName, "UTF-8"))
-        self.clientSEQ += len(fileName)
-
         # split file into MSS
         # data buffer
         data = []
-        beginSEQ = self.clientSEQ
-        endSEQ = beginSEQ
+        data_size = 0
         print("begin to split file into MSS")
         while True:
             temp = file.read(self.MSSlen)
-            endSEQ += len(temp)
+            data_size += len(temp)
             if temp == b'':
                 break
             data.append(temp)
         print("finish")
 
+        # send file name and data size to server for send
+        print("send the file name and data size")
+        self.reliableSendSegment(SYN, ACK, SEQ, FUNC, serverName, port, b"%b %d" % (bytes(fileName, "UTF-8"), data_size))
+        self.clientSEQ += len(b"%b %d" % (bytes(fileName, "UTF-8"), data_size))
+
         # begin to send file
+        print("send the file")
+        beginSEQ = self.clientSEQ
+        endSEQ = beginSEQ + data_size
         self.sendBase = self.clientSEQ
         self.nextSEQ = self.clientSEQ
         while True:
@@ -95,7 +89,7 @@ class Client:
             self.clientSEQ += len(data[(self.nextSEQ - beginSEQ) // self.MSSlen])
             self.nextSEQ = self.clientSEQ
             # finish data transmission
-            if self.nextSEQ >= endSEQ:
+            if self.nextSEQ == endSEQ:
                 break
 
     def receiveFile(self, serverName, port, file, fileName):

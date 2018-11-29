@@ -16,9 +16,10 @@ class Interface:
         self.lockForBase = threading.Lock()
 
     def receiveSegnment(self):
-        seg, addr = self.fileSocket.recvfrom(1024)
+        seg, addr = self.fileSocket.recvfrom(4096)
         SYN, ACK, SEQ, FUNC = list(map(int, seg.split(b"*")[0:4]))
-        data = seg.split(b"*")[4]
+        data = seg[sum(map(len, seg.split(b"*")[0:4])) + 4:]
+        print(len(data))
         print("receive segment from %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d" % (addr[0], addr[1], SYN, ACK, SEQ, FUNC))
         return SYN, ACK, SEQ, FUNC, data, addr
 
@@ -51,16 +52,17 @@ class Interface:
                 delayTime *= 2
                 print(timeoutErr)
 
-    def receiveFile(self, fileName):
+    def receiveFile(self, fileName, data_size):
+        beginACK = self.ACK
         with open(fileName, 'wb') as file:
             while True:
                 rtSYN, rtACK, rtSEQ, rtFUNC, data, addr = self.receiveSegnment()
-                print("%d %d" % (rtSEQ, self.ACK))
                 if rtSEQ == self.ACK:
                     file.write(data)
                     self.ACK += len(data)
-                    print("%d" % len(data))
                     self.sendSegment(SYN, self.ACK, self.SEQ, rtFUNC)
+                if self.ACK == data_size + beginACK:
+                    print("finish receive file")
                     break
 
     def sendFile(self, file_name):
@@ -115,11 +117,12 @@ if __name__ == "__main__":
         # SYN is 0 and already TCP construction
         # FUNC 1
         elif FUNC == 1 and addr in server.addr_info:
-            fileName = data.decode("UTF-8")
+            fileName = data.split(b" ")[0].decode("UTF-8")
+            data_size = int(data.split(b" ")[1])
             print("receive file %s from %s:%s" % (fileName, addr[0], addr[1]))
             server.getInterface(addr).ACK = SEQ + len(data)
             server.getInterface(addr).sendSegment(SYN, server.getInterface(addr).ACK, server.getInterface(addr).SEQ, FUNC)
-            server.getInterface(addr).receiveFile(fileName)
+            server.getInterface(addr).receiveFile(fileName, data_size)
             server.deleteInterface(addr)
 
         # SYN is 0 and already TCP construction
