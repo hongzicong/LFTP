@@ -17,7 +17,7 @@ class Interface:
 
         self.lockForBuffer = threading.Lock()
         self.buffer = {}
-        self.bufferSize = 100
+        self.buffer_size = 3000
 
     def receiveSegnment(self):
         seg, addr = self.fileSocket.recvfrom(4096)
@@ -72,7 +72,6 @@ class Interface:
     def receiveFile(self, fileName, data_size):
         self.beginACK = self.ACK
         self.lastACKRead = self.ACK
-        self.lastACKRecv = self.ACK
 
         fileThread = threading.Thread(target=self.readIntoFile, args=(fileName, data_size,), name="fileThread")
         fileThread.start()
@@ -82,7 +81,7 @@ class Interface:
                 if self.lockForBuffer.acquire():
                     self.buffer[self.ACK] = data
                     self.ACK += len(data)
-                    self.sendSegment(SYN, self.ACK, self.serverSEQ, rtFUNC, rtrwnd)
+                    self.sendSegment(rtSYN, self.ACK, self.serverSEQ, rtFUNC, self.buffer_size - (self.ACK - self.lastACKRead))
                     self.lockForBuffer.release()
             if self.ACK == data_size + self.beginACK:
                 print("finish receive file successfully")
@@ -134,7 +133,7 @@ if __name__ == "__main__":
             rtSEQ = random.randint(0, 100)
 
             server.newInterface(addr, rtACK, rtSEQ)
-            server.getInterface(addr).sendSegment(SYN, rtACK, rtSEQ, 0, 0)
+            server.getInterface(addr).sendSegment(SYN, rtACK, rtSEQ, 0, server.getInterface(addr).buffer_size)
 
         # SYN is 0 and already TCP construction
         # FUNC 1
@@ -143,7 +142,11 @@ if __name__ == "__main__":
             data_size = int(data.split(b" ")[1])
             print("receive file %s from %s:%s" % (fileName, addr[0], addr[1]))
             server.getInterface(addr).ACK = SEQ + len(data)
-            server.getInterface(addr).sendSegment(SYN, server.getInterface(addr).ACK, server.getInterface(addr).serverSEQ, FUNC, 0)
+            server.getInterface(addr).sendSegment(SYN,
+                                                  server.getInterface(addr).ACK,
+                                                  server.getInterface(addr).serverSEQ,
+                                                  FUNC,
+                                                  server.getInterface(addr).buffer_size)
             server.getInterface(addr).receiveFile(fileName, data_size)
             server.deleteInterface(addr)
 

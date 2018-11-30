@@ -90,18 +90,8 @@ class Client:
                 break
 
     def receiveFile(self, serverName, port, file, fileName):
-
-        # data buffer
-        data = []
-
-        SYN = 0
-        # ACK is useless so we set it as 0
-        ACK = 0
-        SEQ = self.clientSEQ
-        FUNC = 0
-
-        # send file name to server for receive
-        self.reliableSendOneSegment(SYN, ACK, SEQ, FUNC, 0, serverName, port, b"%s" % bytes(fileName, "UTF-8"))
+        # TODO
+        pass
 
     # If isSend is True, third handshake will include the file data
     # and the third handshake will be in charge of sendFile function
