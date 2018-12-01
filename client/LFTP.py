@@ -42,7 +42,7 @@ class Client:
 
             except socket.timeout as timeoutErr:
                 # double the delay when time out
-                delayTime *= 2
+                # delayTime *= 2
                 print(timeoutErr)
 
     def receiveSegment(self):

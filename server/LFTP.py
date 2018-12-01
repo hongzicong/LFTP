@@ -92,7 +92,11 @@ class Server:
     def __init__(self):
         # Create a socket for use
         self.fileSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.fileSocket.bind(('127.0.0.1', 5555))
+
+        self.fileSocket.bind((socket.gethostbyname(socket.gethostname()), 5555))
+
+        self.fileSocket.setblocking(True)
+
         self.addr_info = {}
 
     def newInterface(self, addr, ACK, SEQ):
@@ -113,43 +117,41 @@ class Server:
         print("receive segment from %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d rwnd: %d" % (addr[0], addr[1], SYN, ACK, SEQ, FUNC, rwnd))
         return SYN, ACK, SEQ, FUNC, rwnd, data, addr
 
+    def listen(self):
+        while True:
+            SYN, ACK, SEQ, FUNC, rwnd, data, addr = self.receiveSegment()
+
+            # TCP construction : SYN is 1
+            if SYN == 1 and addr not in self.addr_info:
+
+                # Second hand shake
+                rtACK = SEQ + 1
+                rtSEQ = random.randint(0, 100)
+
+                self.newInterface(addr, rtACK, rtSEQ)
+                self.getInterface(addr).sendSegment(SYN, rtACK, rtSEQ, 0, self.getInterface(addr).buffer_size)
+
+            # SYN is 0 and already TCP construction
+            # FUNC 1
+            elif FUNC == 1 and addr in server.addr_info:
+                fileName = data.split(b" ")[0].decode("UTF-8")
+                data_size = int(data.split(b" ")[1])
+                print("receive file %s from %s:%s" % (fileName, addr[0], addr[1]))
+                self.getInterface(addr).ACK = SEQ + len(data)
+                self.getInterface(addr).sendSegment(SYN, self.getInterface(addr).ACK, self.getInterface(addr).serverSEQ,
+                                                      FUNC, self.getInterface(addr).buffer_size)
+                self.getInterface(addr).receiveFile(fileName, data_size)
+                self.deleteInterface(addr)
+
+            # SYN is 0 and already TCP construction
+            # FUNC 0
+            elif FUNC == 0 and addr in self.addr_info:
+                self.getInterface(addr).sendFile(data.split(b"*")[3])
+
+        fileSocket.close()
+
 if __name__ == "__main__":
 
     print("============ Start LFTP server ============")
     server = Server()
-
-
-    while True:
-        SYN, ACK, SEQ, FUNC, rwnd, data, addr = server.receiveSegment()
-
-        # TCP construction : SYN is 1
-        if SYN == 1 and addr not in server.addr_info:
-
-            # Second hand shake
-            rtACK = SEQ + 1
-            rtSEQ = random.randint(0, 100)
-
-            server.newInterface(addr, rtACK, rtSEQ)
-            server.getInterface(addr).sendSegment(SYN, rtACK, rtSEQ, 0, server.getInterface(addr).buffer_size)
-
-        # SYN is 0 and already TCP construction
-        # FUNC 1
-        elif FUNC == 1 and addr in server.addr_info:
-            fileName = data.split(b" ")[0].decode("UTF-8")
-            data_size = int(data.split(b" ")[1])
-            print("receive file %s from %s:%s" % (fileName, addr[0], addr[1]))
-            server.getInterface(addr).ACK = SEQ + len(data)
-            server.getInterface(addr).sendSegment(SYN,
-                                                  server.getInterface(addr).ACK,
-                                                  server.getInterface(addr).serverSEQ,
-                                                  FUNC,
-                                                  server.getInterface(addr).buffer_size)
-            server.getInterface(addr).receiveFile(fileName, data_size)
-            server.deleteInterface(addr)
-
-        # SYN is 0 and already TCP construction
-        # FUNC 0
-        elif FUNC == 0 and addr in server.addr_info:
-            server.getInterface(addr).sendFile(data.split(b"*")[3])
-
-    fileSocket.close()
+    server.listen()
