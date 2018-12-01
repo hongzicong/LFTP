@@ -82,11 +82,12 @@ class Client:
         print("send the file")
         begin = 0
         while True:
+            # flow control
+            while self.clientSEQ + len(data[begin]) - self.rtACK > self.rtrwnd:
+                self.reliableSendOneSegment(SYN, ACK, self.clientSEQ, 1, 0, serverName, port)
+
             self.reliableSendOneSegment(SYN, ACK, self.clientSEQ, 1, 0, serverName, port, data[begin])
             begin += 1
-
-            while self.clientSEQ - self.rtACK > self.rtrwnd:
-                self.reliableSendOneSegment(SYN, ACK, self.clientSEQ, 1, 0, serverName, port)
 
             # finish data transmission
             if begin == len(data):
@@ -108,7 +109,6 @@ class Client:
         self.reliableSendOneSegment(SYN, ACK, SEQ, 0, 0, serverName, port)
 
         return True
-
 
 if __name__ == "__main__":
 
