@@ -17,7 +17,10 @@ class Interface:
 
         self.lockForBuffer = threading.Lock()
         self.buffer = {}
-        self.buffer_size = 3000
+        self.buffer_size = 5000
+
+        self.rwnd = self.buffer_size
+        self.rtrwnd = 0
 
     def receiveSegnment(self):
         seg, addr = self.fileSocket.recvfrom(4096)
@@ -32,41 +35,25 @@ class Interface:
         print("send segment to %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d rwnd: %d" % (self.addr[0], self.addr[1], SYN, ACK, SEQ, FUNC, rwnd))
 
     def reliableSendOneSegment(self, SYN, ACK, SEQ, FUNC, rwnd, data=b""):
-        dataComplete = False
-        delayTime = 1
-        while not dataComplete:
-            self.sendSegment(SYN, ACK, SEQ, FUNC, rwnd, data)
-            self.fileSocket.settimeout(delayTime)
-            try:
-                rtSYN, rtACK, rtSEQ, rtFUNC, rtrwnd = self.receiveSegnment()
-
-                # TCP construction
-                if len(data) == 0 and rtACK == SEQ + 1:
-                    dataComplete = True
-                    self.ACK += 1
-                # File data
-                elif len(data) != 0 and rtACK == SEQ + len(data):
-                    dataComplete = True
-                    self.ACK += len(data)
-
-            except socket.timeout as timeoutErr:
-                # double the delay when time out
-                delayTime *= 2
-                print(timeoutErr)
+        # TODO
+        pass
 
     def readIntoFile(self, file_name, data_size):
+        begin = 0
+        end = data_size
         with open(file_name, 'wb') as file:
             while True:
-                if self.beginACK + data_size == self.lastACKRead:
+                if begin == end:
                     print("finish write to file successfully")
                     break
 
-                while self.lastACKRead in self.buffer:
+                while begin in self.buffer:
                     if self.lockForBuffer.acquire():
-                        file.write(self.buffer[self.lastACKRead])
-                        data_len = len(self.buffer[self.lastACKRead])
-                        self.buffer.pop(self.lastACKRead)
-                        self.lastACKRead += data_len
+                        file.write(self.buffer[begin])
+                        data_len = len(self.buffer[begin])
+                        self.buffer.pop(begin)
+                        self.rwnd += data_len
+                        begin += 1
                         self.lockForBuffer.release()
 
     def receiveFile(self, fileName, data_size):
@@ -75,15 +62,26 @@ class Interface:
 
         fileThread = threading.Thread(target=self.readIntoFile, args=(fileName, data_size,), name="fileThread")
         fileThread.start()
+
+        begin = 0
+        end = data_size
         while True:
             rtSYN, rtACK, rtSEQ, rtFUNC, rtrwnd, data, addr = self.receiveSegnment()
+            if data == b"":
+                self.ACK += 1
+                self.sendSegment(rtSYN, self.ACK, self.serverSEQ, rtFUNC, self.rwnd)
+                continue
             if rtSEQ == self.ACK:
                 if self.lockForBuffer.acquire():
-                    self.buffer[self.ACK] = data
+                    self.buffer[begin] = data
+                    begin += 1
+
+                    self.rwnd -= len(data)
                     self.ACK += len(data)
-                    self.sendSegment(rtSYN, self.ACK, self.serverSEQ, rtFUNC, self.buffer_size - (self.ACK - self.lastACKRead))
+                    self.sendSegment(rtSYN, self.ACK, self.serverSEQ, rtFUNC, self.rwnd)
+
                     self.lockForBuffer.release()
-            if self.ACK == data_size + self.beginACK:
+            if begin == end:
                 print("finish receive file successfully")
                 break
 

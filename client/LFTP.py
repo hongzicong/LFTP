@@ -3,6 +3,7 @@ import socket
 import sys
 import logging
 import threading
+import time
 
 
 class Client:
@@ -15,27 +16,28 @@ class Client:
         self.MSSlen = 1000
         self.winSize = 10 * self.MSSlen
         self.lockForBase = threading.Lock()
+        self.rtrwnd = 0
 
-    def sendSegment(self, SYN, ACK, SEQ, FUNC, rwnd, serverName, port, data=b""):
+    def sendSegment(self, SYN, ACK, SEQ, FUNC, rtrwnd, serverName, port, data=b""):
         # * is the character used to split
-        self.fileSocket.sendto(b"%d*%d*%d*%d*%d*%b" % (SYN, ACK, SEQ, FUNC, rwnd, data), (serverName, port))
-        print("send segment to %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d rwnd: %d" % (serverName, port, SYN, ACK, SEQ, FUNC, rwnd))
+        self.fileSocket.sendto(b"%d*%d*%d*%d*%d*%b" % (SYN, ACK, SEQ, FUNC, rtrwnd, data), (serverName, port))
+        print("send segment to %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d rtrwnd: %d" % (serverName, port, SYN, ACK, SEQ, FUNC, rtrwnd))
 
-    def reliableSendOneSegment(self, SYN, ACK, SEQ, FUNC, rwnd, serverName, port, data=b""):
+    def reliableSendOneSegment(self, SYN, ACK, SEQ, FUNC, rtrwnd, serverName, port, data=b""):
         dataComplete = False
         delayTime = 1
         while not dataComplete:
-            self.sendSegment(SYN, ACK, SEQ, FUNC, rwnd, serverName, port, data)
+            self.sendSegment(SYN, ACK, SEQ, FUNC, rtrwnd, serverName, port, data)
             self.fileSocket.settimeout(delayTime)
             try:
-                rtSYN, rtACK, rtSEQ, rtFUNC, rtData, rtrwnd, addr = self.receiveSegment()
+                rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receiveSegment()
 
                 # TCP construction
-                if len(data) == 0 and rtACK == SEQ + 1:
+                if len(data) == 0 and self.rtACK == SEQ + 1:
                     dataComplete = True
                     self.clientSEQ += 1
                 # File data
-                elif len(data) != 0 and rtACK == SEQ + len(data):
+                elif len(data) != 0 and self.rtACK == SEQ + len(data):
                     dataComplete = True
                     self.clientSEQ += len(data)
 
@@ -46,10 +48,10 @@ class Client:
 
     def receiveSegment(self):
         seg, addr = self.fileSocket.recvfrom(4096)
-        SYN, ACK, SEQ, FUNC, rwnd = list(map(int, seg.split(b"*")[0:5]))
+        SYN, ACK, SEQ, FUNC, rtrwnd = list(map(int, seg.split(b"*")[0:5]))
         data = seg[sum(map(len, seg.split(b"*")[0:5])) + 5:]
-        print("receive segment from %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d rwnd: %d" % (addr[0], addr[1], SYN, ACK, SEQ, FUNC, rwnd))
-        return SYN, ACK, SEQ, FUNC, rwnd, data, addr
+        print("receive segment from %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d rtrwnd: %d" % (addr[0], addr[1], SYN, ACK, SEQ, FUNC, rtrwnd))
+        return SYN, ACK, SEQ, FUNC, rtrwnd, data, addr
 
     def sendFile(self, serverName, port, file, fileName):
 
@@ -74,19 +76,21 @@ class Client:
 
         # send file name and data size to server for send
         print("send the file name and data size")
-        self.reliableSendOneSegment(SYN, ACK, SEQ, FUNC, 0, serverName, port, b"%b %d" % (bytes(fileName, "UTF-8"), data_size))
+        self.reliableSendOneSegment(SYN, ACK, SEQ, FUNC, 0, serverName, port,
+                                    b"%b %d" % (bytes(fileName, "UTF-8"), len(data)))
 
         # begin to send file
         print("send the file")
-        beginSEQ = self.clientSEQ
-        endSEQ = beginSEQ + data_size
-        self.sendBase = self.clientSEQ
-        self.nextSEQ = self.clientSEQ
+        begin = 0
         while True:
-            self.reliableSendOneSegment(SYN, ACK, self.nextSEQ, 1, 0, serverName, port, data[(self.nextSEQ - beginSEQ) // self.MSSlen])
-            self.nextSEQ = self.clientSEQ
+            self.reliableSendOneSegment(SYN, ACK, self.clientSEQ, 1, 0, serverName, port, data[begin])
+            begin += 1
+
+            while self.clientSEQ - self.rtACK > self.rtrwnd:
+                self.reliableSendOneSegment(SYN, ACK, self.clientSEQ, 1, 0, serverName, port)
+
             # finish data transmission
-            if self.nextSEQ == endSEQ:
+            if begin == len(data):
                 break
 
     def receiveFile(self, serverName, port, file, fileName):
