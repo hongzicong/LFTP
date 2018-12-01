@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 import socket
 import random
-import logging
 import threading
-import time
 
 
 class Interface:
@@ -92,6 +90,7 @@ class Interface:
 class Server:
 
     def __init__(self):
+        # Create a socket for use
         self.fileSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.fileSocket.bind(('127.0.0.1', 5555))
         self.addr_info = {}

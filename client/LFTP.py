@@ -1,16 +1,15 @@
 # -*- coding: utf-8 -*-
 import socket
 import sys
-import logging
 import threading
-import time
 
 
 class Client:
 
     def __init__(self):
+        # Create a socket for use
         self.fileSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.fileSocket.bind(("127.0.0.1", 9999))
+
         self.clientSEQ = 0
 
         self.MSSlen = 1000
@@ -112,27 +111,29 @@ class Client:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print("Argument number should be 3 instead of %d" % (len(sys.argv) - 1))
+
+    if len(sys.argv) != 5:
+        print("Argument number should be 4 instead of %d" % (len(sys.argv) - 1))
         sys.exit(1)
+
     funcName = sys.argv[1]
     serverName = sys.argv[2]
-    fileName = sys.argv[3]
-    defaultPort = 5555
+    port = int(sys.argv[3])
+    fileName = sys.argv[4]
     client = Client()
 
     if funcName == "lsend":
         with open(fileName, "rb") as file:
             # TCP construction
-            if client.handshake(serverName, defaultPort, True):
+            if client.handshake(serverName, port, True):
                 print("TCP construct successfully")
-                client.sendFile(serverName, defaultPort, file, fileName)
+                client.sendFile(serverName, port, file, fileName)
 
     elif funcName == "lget":
         with open(fileName, "wb") as file:
             # TCP construction
-            if client.handshake(serverName, defaultPort, False):
+            if client.handshake(serverName, port, False):
                 print("TCP construct successfully")
-                client.receiveFile(serverName, defaultPort, file, fileName)
+                client.receiveFile(serverName, port, file, fileName)
     else:
         print("Your input parameter is wrong!")
