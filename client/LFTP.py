@@ -17,12 +17,11 @@ class Client:
 
         self.rtACK = 0
         self.clientSEQ = 0
-        # the begin of window
-        self.baseSEQ = 0
-        # the next seq will be sent
-        self.nextSEQ = 0
         # the size of window
-        self.winSize = 10 * self.MSSlen
+        self.win_size = 10 * self.MSSlen
+
+        # seg begin to send file
+        self.beginSEQ = 0
 
         self.drop_count = 0
 
@@ -90,54 +89,39 @@ class Client:
 
         # begin to send file
         print("send the file")
-        self.baseSEQ = self.clientSEQ
         self.beginSEQ = self.clientSEQ
-        delay_time = 3
+        delay_time = 2
         while True:
             init_time = clock()
 
-            while (self.clientSEQ - self.baseSEQ) < self.winSize \
+            # pipeline
+            while (self.clientSEQ - self.rtACK) < min(self.win_size, self.rtrwnd) \
                     and (self.clientSEQ - self.beginSEQ) // self.MSSlen < len(data):
                 temp_data = data[(self.clientSEQ - self.beginSEQ) // self.MSSlen]
-
-                # flow control
-                if self.clientSEQ + len(temp_data) - self.rtACK > self.rtrwnd:
-                    break
-
                 self.sendSegment(SYN, ACK, self.clientSEQ, 1, 0, serverName, port, temp_data)
                 self.clientSEQ += len(temp_data)
-                if self.rtACK >= self.baseSEQ:
-                    self.baseSEQ = self.rtACK
 
             # flow control
-            while self.clientSEQ + len(temp_data) - self.rtACK > self.rtrwnd \
-                and (self.clientSEQ - self.beginSEQ) // self.MSSlen < len(data):
+            if self.clientSEQ - self.rtACK >= self.rtrwnd:
                 print("flow control")
                 # check rwnd of the receiver
-                self.sendSegment(0, 0, self.clientSEQ, 2, 0, serverName, port, b"flow")
-                try:
-                    # update rwnd of the receiver
-                    rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receiveSegment()
-                except socket.timeout as timeoutErr:
-                    pass
+                self.sendSegment(SYN, ACK, self.clientSEQ, 2, 0, serverName, port, b"flow")
 
             while True:
-                if clock() - init_time > delay_time or self.clientSEQ == self.baseSEQ:
-                    if self.clientSEQ != self.baseSEQ:
-                        self.drop_count += (1 + (self.clientSEQ - self.beginSEQ) // self.MSSlen)
-                        print("time out")
-                    self.clientSEQ = self.baseSEQ
-                    break
                 self.fileSocket.settimeout(1)
                 try:
                     rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receiveSegment()
-                    if self.rtACK >= self.baseSEQ:
-                        self.baseSEQ = self.rtACK
                 except socket.timeout as timeoutErr:
                     pass
+                if clock() - init_time > delay_time or self.clientSEQ == self.rtACK:
+                    if self.clientSEQ != self.rtACK:
+                        self.drop_count += (1 + (self.clientSEQ - self.beginSEQ) // self.MSSlen)
+                        print("time out")
+                    self.clientSEQ = self.rtACK
+                    break
 
             # finish data transmission
-            if (self.baseSEQ - self.beginSEQ) // self.MSSlen == len(data):
+            if (self.rtACK - self.beginSEQ) // self.MSSlen == len(data):
                 break
 
     def receiveFile(self, serverName, port, file, fileName):
@@ -156,10 +140,6 @@ class Client:
         self.reliableSendOneSegment(SYN, ACK, SEQ, 0, 0, serverName, port)
 
         return True
-
-    def goodbye(self, serverName, port):
-        # TODO
-        pass
 
 if __name__ == "__main__":
 
@@ -180,7 +160,6 @@ if __name__ == "__main__":
                 print("TCP construct successfully")
                 client.send_file(serverName, port, file, fileName)
                 print("%d packet have been dropped" % client.drop_count)
-                client.goodbye(serverName, port)
 
     elif funcName == "lget":
         with open(fileName, "wb") as file:
