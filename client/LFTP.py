@@ -22,7 +22,7 @@ class Client:
         # the next seq will be sent
         self.nextSEQ = 0
         # the size of window
-        self.winSize = 10 * self.MSSlen
+        self.winSize = 50 * self.MSSlen
 
         self.drop_count = 0
 
@@ -95,15 +95,21 @@ class Client:
         delay_time = 0.5
         while True:
             init_time = clock()
-            while self.clientSEQ - self.baseSEQ < self.winSize:
+            while self.clientSEQ - self.baseSEQ < self.winSize \
+                    and (self.clientSEQ - self.beginSEQ) // self.MSSlen < len(data):
                 temp_data = data[(self.clientSEQ - self.beginSEQ) // self.MSSlen]
+
                 # flow control
                 while self.clientSEQ + len(temp_data) - self.rtACK > self.rtrwnd:
                     print("flow control")
                     # check rwnd of the receiver
                     self.sendSegment(0, 0, self.clientSEQ, 2, 0, serverName, port, b"flow")
-                    # update rwnd of the receiver
-                    rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receiveSegment()
+                    try:
+                        # update rwnd of the receiver
+                        rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receiveSegment()
+                    except socket.timeout as timeoutErr:
+                        pass
+
                 self.sendSegment(SYN, ACK, self.clientSEQ, 1, 0, serverName, port, temp_data)
                 self.clientSEQ += len(temp_data)
                 if self.rtACK >= self.baseSEQ:
@@ -125,7 +131,7 @@ class Client:
                     pass
 
             # finish data transmission
-            if (self.baseSEQ - self.beginSEQ) // self.MSSlen == len(data):
+            if (self.baseSEQ - self.beginSEQ) // self.MSSlen == len(data) - 1:
                 break
 
     def receiveFile(self, serverName, port, file, fileName):

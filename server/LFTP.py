@@ -15,7 +15,7 @@ class Interface:
 
         self.lockForBuffer = threading.Lock()
         self.buffer = {}
-        self.buffer_size = 5000
+        self.buffer_size = 50000
 
         self.rwnd = self.buffer_size
         self.rtrwnd = 0
