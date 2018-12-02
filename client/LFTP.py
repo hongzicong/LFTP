@@ -17,8 +17,9 @@ class Client:
 
         self.rtACK = 0
         self.clientSEQ = 0
-        # the size of window
-        self.win_size = 10 * self.MSSlen
+
+        # the size of congestion window
+        self.cwnd = 0
 
         # seg begin to send file
         self.beginSEQ = 0
@@ -91,11 +92,13 @@ class Client:
         print("send the file")
         self.beginSEQ = self.clientSEQ
         delay_time = 2
+        self.cwnd = 1 * self.MSSlen
+        self.ssthresh = 8 * self.MSSlen
         while True:
             init_time = clock()
 
             # pipeline
-            while (self.clientSEQ - self.rtACK) < min(self.win_size, self.rtrwnd) \
+            while (self.clientSEQ - self.rtACK) < min(self.cwnd, self.rtrwnd) \
                     and (self.clientSEQ - self.beginSEQ) // self.MSSlen < len(data):
                 temp_data = data[(self.clientSEQ - self.beginSEQ) // self.MSSlen]
                 self.sendSegment(SYN, ACK, self.clientSEQ, 1, 0, serverName, port, temp_data)
@@ -107,17 +110,28 @@ class Client:
                 # check rwnd of the receiver
                 self.sendSegment(SYN, ACK, self.clientSEQ, 2, 0, serverName, port, b"flow")
 
+            # set timer
+            self.fileSocket.settimeout(1)
             while True:
-                self.fileSocket.settimeout(1)
                 try:
                     rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receiveSegment()
                 except socket.timeout as timeoutErr:
                     pass
-                if clock() - init_time > delay_time or self.clientSEQ == self.rtACK:
-                    if self.clientSEQ != self.rtACK:
-                        self.drop_count += (1 + (self.clientSEQ - self.beginSEQ) // self.MSSlen)
-                        print("time out")
+                if self.clientSEQ == self.rtACK:
+                    if self.cwnd < self.ssthresh:
+                        print("slow start")
+                        self.cwnd *= 2
+                    else:
+                        print("congestion avoidance")
+                        self.cwnd += 1 * self.MSSlen
                     self.clientSEQ = self.rtACK
+                    break
+                elif clock() - init_time > delay_time:
+                    self.drop_count += (1 + (self.clientSEQ - self.beginSEQ) // self.MSSlen)
+                    print("time out")
+                    self.clientSEQ = self.rtACK
+                    self.ssthresh = self.cwnd / 2
+                    self.cwnd = 1 * self.MSSlen
                     break
 
             # finish data transmission
