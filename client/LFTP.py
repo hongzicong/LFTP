@@ -100,6 +100,8 @@ class Client:
         delay_time = 2
         self.cwnd = 1 * self.MSSlen
         self.ssthresh = 8 * self.MSSlen
+        fastACK = 0
+        dupACKcount = 0
         while True:
             init_time = clock()
 
@@ -121,6 +123,16 @@ class Client:
             while True:
                 try:
                     rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receive_segment()
+                    # new ACK
+                    if self.rtACK != fastACK:
+                        self.cwnd = self.ssthresh
+                        fastACK = self.rtACK
+                        dupACKcount = 0
+                    else:
+                        dupACKcount += 1
+                        if dupACKcount == 3:
+                            self.ssthresh = self.cwnd / 2
+                            self.cwnd = self.ssthresh + 3 * self.MSSlen
                 except socket.timeout as timeoutErr:
                     pass
                 if self.SEQ == self.rtACK:
@@ -133,7 +145,7 @@ class Client:
                     self.SEQ = self.rtACK
                     break
                 elif clock() - init_time > delay_time:
-                    self.drop_count += (1 + (self.SEQ - self.beginSEQ) // self.MSSlen)
+                    self.drop_count += (1 + (self.SEQ - self.rtACK) // self.MSSlen)
                     print("time out")
                     self.SEQ = self.rtACK
                     self.ssthresh = self.cwnd / 2

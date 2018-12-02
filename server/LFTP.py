@@ -19,7 +19,7 @@ class Interface:
         self.drop_count = 0
         self.lockForBuffer = threading.Lock()
         self.buffer = {}
-        self.buffer_size = 80 * self.MSSlen
+        self.buffer_size = 8 * self.MSSlen
 
         self.rwnd = self.buffer_size
         self.rtrwnd = 0
