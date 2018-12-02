@@ -72,7 +72,7 @@ class Interface:
                 self.sendSegment(rtSYN, self.ACK, self.serverSEQ, rtFUNC, self.rwnd)
                 continue
             # write to the buffer only when receiver need
-            if (rtSEQ - check_count - self.beginACK) // self.MSSlen not in self.buffer:
+            if (rtSEQ - check_count - self.beginACK) // self.MSSlen == begin:
                 if self.lockForBuffer.acquire():
                     self.buffer[begin] = data
                     begin += 1
