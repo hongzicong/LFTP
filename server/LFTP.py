@@ -47,6 +47,7 @@ class Interface:
 
                 while begin in self.buffer:
                     if self.lockForBuffer.acquire():
+                        print("read from buffer write into file")
                         file.write(self.buffer[begin])
                         data_len = len(self.buffer[begin])
                         self.buffer.pop(begin)

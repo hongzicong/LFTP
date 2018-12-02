@@ -22,7 +22,7 @@ class Client:
         # the next seq will be sent
         self.nextSEQ = 0
         # the size of window
-        self.winSize = 50 * self.MSSlen
+        self.winSize = 10 * self.MSSlen
 
         self.drop_count = 0
 
@@ -131,7 +131,7 @@ class Client:
                     pass
 
             # finish data transmission
-            if (self.baseSEQ - self.beginSEQ) // self.MSSlen == len(data) - 1:
+            if (self.baseSEQ - self.beginSEQ) // self.MSSlen == len(data):
                 break
 
     def receiveFile(self, serverName, port, file, fileName):
