@@ -15,7 +15,7 @@ class Interface:
 
         self.lockForBuffer = threading.Lock()
         self.buffer = {}
-        self.buffer_size = 50000
+        self.buffer_size = 80 * self.MSSlen
 
         self.rwnd = self.buffer_size
         self.rtrwnd = 0
@@ -79,11 +79,10 @@ class Interface:
                     begin += 1
                     self.rwnd -= len(data)
                     self.lockForBuffer.release()
-            # answer
-            self.sendSegment(rtSYN, rtSEQ + len(data), 0, rtFUNC, self.rwnd)
             if begin == end:
                 print("finish receive file successfully")
-                break
+            # answer
+            self.sendSegment(rtSYN, rtSEQ + len(data), 0, rtFUNC, self.rwnd)
 
     def send_file(self, file_name):
         with open(file_name, 'rb') as file:
@@ -95,7 +94,8 @@ class Server:
         # Create a socket for use
         self.fileSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-        self.fileSocket.bind((socket.gethostbyname(socket.gethostname()), 5555))
+        # self.fileSocket.bind((socket.gethostbyname(socket.gethostname()), 5555))
+        self.fileSocket.bind(("127.0.0.1", 5555))
 
         self.fileSocket.setblocking(True)
 

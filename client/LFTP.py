@@ -92,28 +92,34 @@ class Client:
         print("send the file")
         self.baseSEQ = self.clientSEQ
         self.beginSEQ = self.clientSEQ
-        delay_time = 0.5
+        delay_time = 3
         while True:
             init_time = clock()
-            while self.clientSEQ - self.baseSEQ < self.winSize \
+
+            while (self.clientSEQ - self.baseSEQ) < self.winSize \
                     and (self.clientSEQ - self.beginSEQ) // self.MSSlen < len(data):
                 temp_data = data[(self.clientSEQ - self.beginSEQ) // self.MSSlen]
 
                 # flow control
-                while self.clientSEQ + len(temp_data) - self.rtACK > self.rtrwnd:
-                    print("flow control")
-                    # check rwnd of the receiver
-                    self.sendSegment(0, 0, self.clientSEQ, 2, 0, serverName, port, b"flow")
-                    try:
-                        # update rwnd of the receiver
-                        rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receiveSegment()
-                    except socket.timeout as timeoutErr:
-                        pass
+                if self.clientSEQ + len(temp_data) - self.rtACK > self.rtrwnd:
+                    break
 
                 self.sendSegment(SYN, ACK, self.clientSEQ, 1, 0, serverName, port, temp_data)
                 self.clientSEQ += len(temp_data)
                 if self.rtACK >= self.baseSEQ:
                     self.baseSEQ = self.rtACK
+
+            # flow control
+            while self.clientSEQ + len(temp_data) - self.rtACK > self.rtrwnd \
+                and (self.clientSEQ - self.beginSEQ) // self.MSSlen < len(data):
+                print("flow control")
+                # check rwnd of the receiver
+                self.sendSegment(0, 0, self.clientSEQ, 2, 0, serverName, port, b"flow")
+                try:
+                    # update rwnd of the receiver
+                    rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receiveSegment()
+                except socket.timeout as timeoutErr:
+                    pass
 
             while True:
                 if clock() - init_time > delay_time or self.clientSEQ == self.baseSEQ:
@@ -122,7 +128,7 @@ class Client:
                         print("time out")
                     self.clientSEQ = self.baseSEQ
                     break
-                self.fileSocket.settimeout(0.1)
+                self.fileSocket.settimeout(1)
                 try:
                     rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receiveSegment()
                     if self.rtACK >= self.baseSEQ:
@@ -151,6 +157,10 @@ class Client:
 
         return True
 
+    def goodbye(self, serverName, port):
+        # TODO
+        pass
+
 if __name__ == "__main__":
 
     if len(sys.argv) != 5:
@@ -170,6 +180,7 @@ if __name__ == "__main__":
                 print("TCP construct successfully")
                 client.send_file(serverName, port, file, fileName)
                 print("%d packet have been dropped" % client.drop_count)
+                client.goodbye(serverName, port)
 
     elif funcName == "lget":
         with open(fileName, "wb") as file:
