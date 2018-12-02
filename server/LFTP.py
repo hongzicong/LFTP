@@ -15,7 +15,7 @@ class Interface:
 
         self.lockForBuffer = threading.Lock()
         self.buffer = {}
-        self.buffer_size = 50000
+        self.buffer_size = 5000
 
         self.rwnd = self.buffer_size
         self.rtrwnd = 0
@@ -66,8 +66,7 @@ class Interface:
         while True:
             rtSYN, rtACK, rtSEQ, rtFUNC, rtrwnd, data, addr = self.receiveSegnment()
             if data == b"":
-                self.ACK += 1
-                self.sendSegment(rtSYN, self.ACK, self.serverSEQ, rtFUNC, self.rwnd)
+                self.sendSegment(rtSYN, rtSEQ + 1, self.serverSEQ, rtFUNC, self.rwnd)
                 continue
             # write to the buffer only when receiver need
             if (rtSEQ - self.beginACK) // self.MSSlen == begin:
