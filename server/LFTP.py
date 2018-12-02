@@ -58,27 +58,28 @@ class Interface:
         self.beginACK = self.ACK
         self.lastACKRead = self.ACK
 
-        fileThread = threading.Thread(target=self.readIntoFile, args=(fileName, data_size,), name="fileThread")
-        fileThread.start()
+        file_thread = threading.Thread(target=self.readIntoFile, args=(fileName, data_size,), name="fileThread")
+        file_thread.start()
 
         begin = 0
         end = data_size
+        check_count = 0
         while True:
             rtSYN, rtACK, rtSEQ, rtFUNC, rtrwnd, data, addr = self.receiveSegnment()
             if data == b"":
                 self.ACK += 1
+                check_count += 1
                 self.sendSegment(rtSYN, self.ACK, self.serverSEQ, rtFUNC, self.rwnd)
                 continue
-            if rtSEQ == self.ACK:
+            # write to the buffer only when receiver need
+            if (rtSEQ - check_count - self.beginACK) // self.MSSlen not in self.buffer:
                 if self.lockForBuffer.acquire():
                     self.buffer[begin] = data
                     begin += 1
-
                     self.rwnd -= len(data)
-                    self.ACK += len(data)
-                    self.sendSegment(rtSYN, self.ACK, self.serverSEQ, rtFUNC, self.rwnd)
-
                     self.lockForBuffer.release()
+            # answer
+            self.sendSegment(rtSYN, rtSEQ, rtSEQ + len(data), rtFUNC, self.rwnd)
             if begin == end:
                 print("finish receive file successfully")
                 break

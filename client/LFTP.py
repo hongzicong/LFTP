@@ -3,6 +3,7 @@ import socket
 import sys
 import threading
 
+count = 0
 
 class Client:
 
@@ -42,7 +43,9 @@ class Client:
 
             except socket.timeout as timeoutErr:
                 # double the delay when time out
-                # delayTime *= 2
+                delayTime *= 2
+                global count
+                count += 1
                 print(timeoutErr)
 
     def receiveSegment(self):
@@ -84,6 +87,7 @@ class Client:
         while True:
             # flow control
             while self.clientSEQ + len(data[begin]) - self.rtACK > self.rtrwnd:
+                print("flow control")
                 self.reliableSendOneSegment(SYN, ACK, self.clientSEQ, 1, 0, serverName, port)
 
             self.reliableSendOneSegment(SYN, ACK, self.clientSEQ, 1, 0, serverName, port, data[begin])
@@ -128,6 +132,7 @@ if __name__ == "__main__":
             if client.handshake(serverName, port, True):
                 print("TCP construct successfully")
                 client.sendFile(serverName, port, file, fileName)
+                print(count)
 
     elif funcName == "lget":
         with open(fileName, "wb") as file:
