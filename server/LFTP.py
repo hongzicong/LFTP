@@ -79,7 +79,7 @@ class Interface:
                     self.rwnd -= len(data)
                     self.lockForBuffer.release()
             # answer
-            self.sendSegment(rtSYN, rtSEQ, rtSEQ + len(data), rtFUNC, self.rwnd)
+            self.sendSegment(rtSYN, rtSEQ + len(data), 0, rtFUNC, self.rwnd)
             if begin == end:
                 print("finish receive file successfully")
                 break

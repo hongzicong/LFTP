@@ -33,13 +33,13 @@ class Client:
                 rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receiveSegment()
 
                 # TCP construction
-                if len(data) == 0 and self.rtACK == SEQ + 1:
+                if len(data) == 0 and self.rtACK == self.clientSEQ + 1:
                     dataComplete = True
-                    self.clientSEQ += 1
+                    self.clientSEQ = self.rtACK
                 # File data
-                elif len(data) != 0 and self.rtACK == SEQ + len(data):
+                elif len(data) != 0 and self.rtACK == self.clientSEQ + len(data):
                     dataComplete = True
-                    self.clientSEQ += len(data)
+                    self.clientSEQ = self.rtACK
 
             except socket.timeout as timeoutErr:
                 # double the delay when time out
