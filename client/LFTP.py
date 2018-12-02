@@ -17,6 +17,11 @@ class Client:
         self.ACK = 0
         self.SEQ = 0
 
+        self.drop_count = 0
+        self.lockForBuffer = threading.Lock()
+        self.buffer = {}
+        self.buffer_size = 80 * self.MSSlen
+
         self.rwnd = self.buffer_size
         self.rtrwnd = 0
 
@@ -26,10 +31,6 @@ class Client:
         # seg begin to send file
         self.beginSEQ = 0
 
-        self.drop_count = 0
-        self.lockForBuffer = threading.Lock()
-        self.buffer = {}
-        self.buffer_size = 80 * self.MSSlen
 
     def send_segment(self, SYN, ACK, SEQ, FUNC, rtrwnd, serverName, port, data=b""):
         # * is the character used to split
@@ -219,7 +220,7 @@ if __name__ == "__main__":
     if funcName == "lsend":
         with open(file_name, "rb") as file:
             # TCP construction
-            if client.handshake(serverName, port, True):
+            if client.handshake(serverName, port):
                 print("TCP construct successfully")
                 client.send_file(serverName, port, file, file_name)
                 print("%d packet have been dropped" % client.drop_count)
@@ -227,7 +228,7 @@ if __name__ == "__main__":
     elif funcName == "lget":
         with open(file_name, "wb") as file:
             # TCP construction
-            if client.handshake(serverName, port, False):
+            if client.handshake(serverName, port):
                 print("TCP construct successfully")
                 client.receive_file(serverName, port, file, file_name)
     else:
