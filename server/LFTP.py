@@ -15,7 +15,7 @@ class Interface:
 
         self.lockForBuffer = threading.Lock()
         self.buffer = {}
-        self.buffer_size = 5000
+        self.buffer_size = 50000
 
         self.rwnd = self.buffer_size
         self.rtrwnd = 0
@@ -63,16 +63,14 @@ class Interface:
 
         begin = 0
         end = data_size
-        check_count = 0
         while True:
             rtSYN, rtACK, rtSEQ, rtFUNC, rtrwnd, data, addr = self.receiveSegnment()
             if data == b"":
                 self.ACK += 1
-                check_count += 1
                 self.sendSegment(rtSYN, self.ACK, self.serverSEQ, rtFUNC, self.rwnd)
                 continue
             # write to the buffer only when receiver need
-            if (rtSEQ - check_count - self.beginACK) // self.MSSlen == begin:
+            if (rtSEQ - self.beginACK) // self.MSSlen == begin:
                 if self.lockForBuffer.acquire():
                     self.buffer[begin] = data
                     begin += 1
@@ -84,7 +82,7 @@ class Interface:
                 print("finish receive file successfully")
                 break
 
-    def sendFile(self, file_name):
+    def send_file(self, file_name):
         with open(file_name, 'rb') as file:
             pass
 
@@ -147,7 +145,7 @@ class Server:
             # SYN is 0 and already TCP construction
             # FUNC 0
             elif FUNC == 0 and addr in self.addr_info:
-                self.getInterface(addr).sendFile(data.split(b"*")[3])
+                self.getInterface(addr).send_file(data.split(b"*")[3])
 
         fileSocket.close()
 
