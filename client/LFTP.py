@@ -62,12 +62,6 @@ class Client:
         print("receive segment from %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d rtrwnd: %d" % (addr[0], addr[1], SYN, ACK, SEQ, FUNC, rtrwnd))
         return SYN, ACK, SEQ, FUNC, rtrwnd, data, addr
 
-    def check_flow_control(self):
-        # check rwnd of the receiver
-        self.sendSegment(0, 0, self.clientSEQ, 1, 0, serverName, port)
-        # update rwnd of the receiver
-        rtSYN, rtACK, rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receiveSegment()
-
     def send_file(self, serverName, port, file, fileName):
 
         SYN = 0
@@ -106,9 +100,14 @@ class Client:
                 # flow control
                 while self.clientSEQ + len(temp_data) - self.rtACK > self.rtrwnd:
                     print("flow control")
-                    self.check_flow_control()
+                    # check rwnd of the receiver
+                    self.sendSegment(0, 0, self.clientSEQ, 2, 0, serverName, port, b"flow")
+                    # update rwnd of the receiver
+                    rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receiveSegment()
                 self.sendSegment(SYN, ACK, self.clientSEQ, 1, 0, serverName, port, temp_data)
                 self.clientSEQ += len(temp_data)
+                if self.rtACK >= self.baseSEQ:
+                    self.baseSEQ = self.rtACK
 
             while True:
                 if clock() - init_time > delay_time or self.clientSEQ == self.baseSEQ:

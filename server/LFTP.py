@@ -68,6 +68,9 @@ class Interface:
             if data == b"":
                 self.sendSegment(rtSYN, rtSEQ + 1, self.serverSEQ, rtFUNC, self.rwnd)
                 continue
+            if rtFUNC == 2:
+                self.sendSegment(rtSYN, rtSEQ, self.serverSEQ, rtFUNC, self.rwnd)
+                continue
             # write to the buffer only when receiver need
             if (rtSEQ - self.beginACK) // self.MSSlen == begin:
                 if self.lockForBuffer.acquire():
