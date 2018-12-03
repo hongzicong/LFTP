@@ -132,7 +132,7 @@ class Interface:
                     break
                 data.append(temp)
             print("finish")
-
+            print(len(data))
             self.send_segment(0, self.ACK, self.SEQ, 0, b"%d" % len(data))
 
             # begin to send file
@@ -232,7 +232,9 @@ class Server:
 
     def listen(self):
         while True:
+            self.fileSocket.setblocking(True)
             SYN, ACK, SEQ, FUNC, rwnd, data, addr = self.receive_segment()
+            self.fileSocket.setblocking(False)
 
             # TCP construction : SYN is 1
             if SYN == 1 and addr not in self.addr_info:

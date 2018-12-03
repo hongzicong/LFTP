@@ -11,6 +11,9 @@ class Client:
     def __init__(self):
         # Create a socket for use
         self.fileSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # self.fileSocket.bind((socket.gethostbyname(socket.gethostname()), 5555))
+        self.fileSocket.bind(("127.0.0.1", 8888))
+
         self.MSSlen = 1000
 
         self.rtData = b""
@@ -46,7 +49,7 @@ class Client:
             self.send_segment(SYN, self.ACK, self.SEQ, FUNC, serverName, port, data)
             self.fileSocket.settimeout(delayTime)
             try:
-                rtSYN, self.rtACK, self.rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receive_segment()
+                rtSYN, self.rtACK, self.rtSEQ, rtFUNC, self.rtrwnd, self.rtData, addr = self.receive_segment()
 
                 # TCP construction
                 if len(data) == 0 and self.rtACK == self.SEQ + 1:
@@ -210,7 +213,7 @@ class Client:
                     self.ACK = self.rtSEQ + len(data)
                     self.lockForBuffer.release()
             # answer
-            self.send_segment(rtSYN, self.ACK, self.SEQ, rtFUNC)
+            self.send_segment(rtSYN, self.ACK, self.SEQ, rtFUNC, serverName, port)
             if begin == end:
                 print("finish receive file successfully")
                 break
