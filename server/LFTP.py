@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import socket
-import random
 import threading
 from time import clock
 import math
@@ -40,28 +39,30 @@ class Interface:
         print("receive segment from %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d rtrwnd: %d" % (addr[0], addr[1], SYN, ACK, SEQ, FUNC, rtrwnd))
         return SYN, ACK, SEQ, FUNC, rtrwnd, data, addr
 
-    def send_segment(self, SYN, ACK, SEQ, FUNC, rwnd, data=b""):
+    def send_segment(self, SYN, ACK, SEQ, FUNC, data=b""):
         # * is the character used to split
-        self.fileSocket.sendto(b"%d*%d*%d*%d*%d*%b" % (SYN, ACK, SEQ, FUNC, rwnd, data), self.addr)
-        print("send segment to %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d rwnd: %d" % (self.addr[0], self.addr[1], SYN, ACK, SEQ, FUNC, rwnd))
+        self.fileSocket.sendto(b"%d*%d*%d*%d*%d*%b" % (SYN, ACK, SEQ, FUNC, self.rwnd, data), self.addr)
+        print("send segment to %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d rwnd: %d" % (self.addr[0], self.addr[1], SYN, ACK, SEQ, FUNC, self.rwnd))
 
-    def reliable_send_one_segment(self, SYN, ACK, SEQ, FUNC, rtrwnd, serverName, port, data=b""):
+    def reliable_send_one_segment(self, SYN, FUNC, serverName, port, data=b""):
         dataComplete = False
         delayTime = 1
         while not dataComplete:
-            self.send_segment(SYN, ACK, SEQ, FUNC, rtrwnd, serverName, port, data)
+            self.send_segment(SYN, self.ACK, self.SEQ, FUNC, data)
             self.fileSocket.settimeout(delayTime)
             try:
                 rtSYN, self.rtACK, self.rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receive_segment()
 
                 # TCP construction
-                if len(data) == 0 and self.rtACK == self.clientSEQ + 1:
+                if len(data) == 0 and self.rtACK == self.SEQ + 1:
                     dataComplete = True
-                    self.clientSEQ = self.rtACK
+                    self.SEQ = self.rtACK
+                    self.ACK = self.rtSEQ + 1
                 # File data
-                elif len(data) != 0 and self.rtACK == self.clientSEQ + len(data):
+                elif len(data) != 0 and self.rtACK == self.SEQ + len(data):
                     dataComplete = True
-                    self.clientSEQ = self.rtACK
+                    self.SEQ = self.rtACK
+                    self.ACK = self.rtSEQ + len(data)
 
             except socket.timeout as timeoutErr:
                 # double the delay when time out
@@ -111,7 +112,7 @@ class Interface:
                     self.ACK = self.rtSEQ + len(data)
                     self.lockForBuffer.release()
             # answer
-            self.send_segment(rtSYN, self.ACK, 0, rtFUNC, self.rwnd)
+            self.send_segment(rtSYN, self.ACK, self.SEQ, rtFUNC)
             if begin == end:
                 print("finish receive file successfully")
                 break
@@ -147,14 +148,14 @@ class Interface:
                 while (self.SEQ - self.rtACK) < min(self.cwnd, self.rtrwnd) \
                         and math.ceil((self.SEQ - self.beginSEQ) / self.MSSlen) < len(data):
                     temp_data = data[(self.SEQ - self.beginSEQ) // self.MSSlen]
-                    self.send_segment(0, self.ACK, self.SEQ, 1, 0, temp_data)
+                    self.send_segment(0, self.ACK, self.SEQ, 1, temp_data)
                     self.SEQ += len(temp_data)
 
                 # flow control
                 if self.SEQ - self.rtACK >= self.rtrwnd:
                     print("flow control")
                     # check rwnd of the receiver
-                    self.send_segment(0, self.ACK, self.SEQ, 2, 0, b"flow")
+                    self.send_segment(0, self.ACK, self.SEQ, 2, b"flow")
 
                 # set timer
                 self.fileSocket.settimeout(1)
@@ -236,19 +237,20 @@ class Server:
 
                 # Second hand shake
                 rtACK = SEQ + 1
-                rtSEQ = random.randint(0, 100)
+                rtSEQ = 0
 
                 self.new_interface(addr, rtACK, rtSEQ)
-                self.get_interface(addr).send_segment(SYN, rtACK, rtSEQ, 0, self.get_interface(addr).buffer_size)
+                self.get_interface(addr).send_segment(SYN, rtACK, rtSEQ, 0)
 
             # SYN is 0 and already TCP construction
             # FUNC 0 -- send file
             elif FUNC == 0 and addr in self.addr_info:
                 file_name = data.split(b" ")[0].decode("UTF-8")
                 print("send file %s to %s:%s" % (file_name, addr[0], addr[1]))
-                self.get_interface(addr).ACK = SEQ + len(data)
+                self.get_interface(addr).SEQ = ACK
+                self.get_interface(addr).ACK = SEQ + 1
                 self.get_interface(addr).send_segment(SYN, self.get_interface(addr).ACK, self.get_interface(addr).SEQ,
-                                                      FUNC, self.get_interface(addr).buffer_size)
+                                                      FUNC, b"%d" % len(data))
                 self.get_interface(addr).send_file(file_name)
                 self.delete_interface(addr)
 
@@ -259,8 +261,7 @@ class Server:
                 data_size = int(data.split(b" ")[1])
                 print("receive file %s from %s:%s" % (file_name, addr[0], addr[1]))
                 self.get_interface(addr).ACK = SEQ + len(data)
-                self.get_interface(addr).send_segment(SYN, self.get_interface(addr).ACK, self.get_interface(addr).SEQ,
-                                                      FUNC, self.get_interface(addr).buffer_size)
+                self.get_interface(addr).send_segment(SYN, self.get_interface(addr).ACK, self.get_interface(addr).SEQ, FUNC)
                 self.get_interface(addr).receive_file(file_name, data_size)
                 self.delete_interface(addr)
 
