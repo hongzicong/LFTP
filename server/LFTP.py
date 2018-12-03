@@ -101,6 +101,7 @@ class Interface:
         begin = 0
         end = data_size
         while True:
+            self.fileSocket.setblocking(True)
             rtSYN, self.rtACK, self.rtSEQ, rtFUNC, rtrwnd, data, addr = self.receive_segment()
             if data == b"":
                 self.ACK = self.rtSEQ + 1
@@ -207,7 +208,8 @@ class Server:
         # Create a socket for use
         self.fileSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-        self.fileSocket.bind((socket.gethostbyname(socket.gethostname()), 5555))
+        # self.fileSocket.bind((socket.gethostbyname(socket.gethostname()), 5555))
+        self.fileSocket.bind(("127.0.0.1", 5555))
 
         self.fileSocket.setblocking(True)
 
@@ -256,7 +258,7 @@ class Server:
                 self.get_interface(addr).SEQ = ACK
                 self.get_interface(addr).ACK = SEQ + len(file_name)
                 send_thread = threading.Thread(target=self.get_interface(addr).send_file,
-                                               args=file_name)
+                                               args=(file_name,))
                 send_thread.start()
                 send_thread.join()
 
