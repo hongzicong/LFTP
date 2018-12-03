@@ -3,7 +3,7 @@ import socket
 import threading
 import time
 import math
-
+import queue
 
 class Interface:
 
@@ -40,9 +40,9 @@ class Interface:
     def receive_segment(self, delayTime):
         init_time = time.time()
         while True:
-            if len(self.segments) != 0:
+            if self.segments.empty() != 0:
                 if self.lockForSeg.acquire():
-                    seg = self.segments.pop()
+                    seg = self.segments.get()
                     SYN, ACK, SEQ, FUNC, rtrwnd = list(map(int, seg.split(b"*")[0:5]))
                     data = seg[sum(map(len, seg.split(b"*")[0:5])) + 5:]
                     print("receive segment from %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d rtrwnd: %d" %
@@ -51,7 +51,6 @@ class Interface:
                     return SYN, ACK, SEQ, FUNC, rtrwnd, data
             elif time.time() - init_time > delayTime:
                 raise socket.timeout
-
 
     def send_segment(self, SYN, ACK, SEQ, FUNC, data=b""):
         # * is the character used to split
@@ -114,7 +113,7 @@ class Interface:
         begin = 0
         end = data_size
         while True:
-            rtSYN, self.rtACK, self.rtSEQ, rtFUNC, rtrwnd, data = self.receive_segment()
+            rtSYN, self.rtACK, self.rtSEQ, rtFUNC, rtrwnd, data = self.receive_segment(100)
             if data == b"":
                 self.ACK = self.rtSEQ + 1
             elif rtFUNC == 2:
@@ -232,7 +231,7 @@ class Server:
 
     def new_interface(self, addr, ACK, SEQ):
         #  New a buffer for the address
-        self.segmentsArr[addr] = []
+        self.segmentsArr[addr] = queue.Queue()
         clientInterface = Interface(self.fileSocket, addr, ACK, SEQ, self.segmentsArr[addr], self.lockForSeg)
         self.addr_info[addr] = clientInterface
 
@@ -247,7 +246,7 @@ class Server:
         seg, addr = self.fileSocket.recvfrom(4096)
         if addr in self.addr_info and self.addr_info[addr].has_construct:
             if self.lockForSeg.acquire():
-                self.segmentsArr[addr].append(seg)
+                self.segmentsArr[addr].put(seg)
                 self.lockForSeg.release()
                 return False, seg, addr
         return True, seg, addr
