@@ -222,8 +222,8 @@ class Server:
         # Create a socket for use
         self.fileSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-        # self.fileSocket.bind((socket.gethostbyname(socket.gethostname()), 5555))
-        self.fileSocket.bind(("127.0.0.1", 5555))
+        self.fileSocket.bind((socket.gethostbyname(socket.gethostname()), 5555))
+        # self.fileSocket.bind(("127.0.0.1", 5555))
 
         self.fileSocket.setblocking(True)
 
