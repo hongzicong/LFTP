@@ -7,7 +7,7 @@ import math
 
 class Interface:
 
-    def __init__(self, fileSocket, addr, ACK, SEQ):
+    def __init__(self, fileSocket, addr, ACK, SEQ, segments, lockForSeg):
         self.fileSocket = fileSocket
         self.addr = addr
         self.MSSlen = 1000
@@ -16,6 +16,9 @@ class Interface:
         self.rtACK = 0
         self.ACK = ACK
         self.SEQ = SEQ
+
+        self.segments = segments
+        self.lockForSeg = lockForSeg
 
         self.drop_count = 0
         self.lockForBuffer = threading.Lock()
@@ -32,12 +35,19 @@ class Interface:
         # seg begin to send file
         self.beginSEQ = 0
 
+        self.has_construct = False
+
     def receive_segment(self):
-        seg, addr = self.fileSocket.recvfrom(4096)
-        SYN, ACK, SEQ, FUNC, rtrwnd = list(map(int, seg.split(b"*")[0:5]))
-        data = seg[sum(map(len, seg.split(b"*")[0:5])) + 5:]
-        print("receive segment from %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d rtrwnd: %d" % (addr[0], addr[1], SYN, ACK, SEQ, FUNC, rtrwnd))
-        return SYN, ACK, SEQ, FUNC, rtrwnd, data, addr
+        while True:
+            if len(self.segments) != 0:
+                if self.lockForSeg.acquire():
+                    seg = self.segments.pop()
+                    SYN, ACK, SEQ, FUNC, rtrwnd = list(map(int, seg.split(b"*")[0:5]))
+                    data = seg[sum(map(len, seg.split(b"*")[0:5])) + 5:]
+                    print("receive segment from %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d rtrwnd: %d" %
+                          (self.addr[0], self.addr[1], SYN, ACK, SEQ, FUNC, rtrwnd))
+                    self.lockForSeg.release()
+                    return SYN, ACK, SEQ, FUNC, rtrwnd, data
 
     def send_segment(self, SYN, ACK, SEQ, FUNC, data=b""):
         # * is the character used to split
@@ -51,7 +61,7 @@ class Interface:
             self.send_segment(SYN, self.ACK, self.SEQ, FUNC, data)
             self.fileSocket.settimeout(delayTime)
             try:
-                rtSYN, self.rtACK, self.rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receive_segment()
+                rtSYN, self.rtACK, self.rtSEQ, rtFUNC, self.rtrwnd, rtData = self.receive_segment()
 
                 # TCP construction
                 if len(data) == 0 and self.rtACK == self.SEQ + 1:
@@ -102,7 +112,7 @@ class Interface:
         end = data_size
         while True:
             self.fileSocket.setblocking(True)
-            rtSYN, self.rtACK, self.rtSEQ, rtFUNC, rtrwnd, data, addr = self.receive_segment()
+            rtSYN, self.rtACK, self.rtSEQ, rtFUNC, rtrwnd, data = self.receive_segment()
             if data == b"":
                 self.ACK = self.rtSEQ + 1
             elif rtFUNC == 2:
@@ -167,7 +177,7 @@ class Interface:
                 self.fileSocket.settimeout(1)
                 while True:
                     try:
-                        rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, self.rtData, addr = self.receive_segment()
+                        rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, self.rtData = self.receive_segment()
                         # new ACK
                         if self.rtACK != fastACK:
                             self.cwnd = self.ssthresh
@@ -199,6 +209,7 @@ class Interface:
 
                 # finish data transmission
                 if math.ceil((self.rtACK - self.beginSEQ) / self.MSSlen) == len(data):
+                    print("File send successfully")
                     break
 
 
@@ -208,16 +219,20 @@ class Server:
         # Create a socket for use
         self.fileSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-        # self.fileSocket.bind((socket.gethostbyname(socket.gethostname()), 5555))
-        self.fileSocket.bind(("127.0.0.1", 5555))
+        self.fileSocket.bind((socket.gethostbyname(socket.gethostname()), 5555))
 
         self.fileSocket.setblocking(True)
 
         self.addr_info = {}
 
+        self.segmentsArr = {}
+
+        self.lockForSeg = threading.Lock()
+
     def new_interface(self, addr, ACK, SEQ):
         #  New a buffer for the address
-        clientInterface = Interface(self.fileSocket, addr, ACK, SEQ)
+        self.segmentsArr[addr] = []
+        clientInterface = Interface(self.fileSocket, addr, ACK, SEQ, self.segmentsArr[addr], self.lockForSeg)
         self.addr_info[addr] = clientInterface
 
     def delete_interface(self, addr):
@@ -229,16 +244,21 @@ class Server:
 
     def receive_segment(self):
         seg, addr = self.fileSocket.recvfrom(4096)
-        SYN, ACK, SEQ, FUNC, rwnd = list(map(int, seg.split(b"*")[0:5]))
-        data = seg[sum(map(len, seg.split(b"*")[0:5])) + 5:]
-        print("receive segment from %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d rwnd: %d" % (addr[0], addr[1], SYN, ACK, SEQ, FUNC, rwnd))
-        return SYN, ACK, SEQ, FUNC, rwnd, data, addr
+        if addr in self.addr_info and self.addr_info[addr].has_construct:
+            if self.lockForSeg.acquire():
+                self.segmentsArr[addr].append(seg)
+                self.lockForSeg.release()
+                return False, seg, addr
+        return True, seg, addr
 
     def listen(self):
+        self.fileSocket.setblocking(True)
         while True:
-            self.fileSocket.setblocking(True)
-            SYN, ACK, SEQ, FUNC, rwnd, data, addr = self.receive_segment()
-            self.fileSocket.setblocking(False)
+            first, seg, addr = self.receive_segment()
+            if not first:
+                continue
+            SYN, ACK, SEQ, FUNC, rtrwnd = list(map(int, seg.split(b"*")[0:5]))
+            data = seg[sum(map(len, seg.split(b"*")[0:5])) + 5:]
 
             # TCP construction : SYN is 1
             if SYN == 1 and addr not in self.addr_info:
@@ -260,7 +280,6 @@ class Server:
                 send_thread = threading.Thread(target=self.get_interface(addr).send_file,
                                                args=(file_name,))
                 send_thread.start()
-                send_thread.join()
 
             # SYN is 0 and already TCP construction
             # FUNC 1 -- receive file
@@ -273,7 +292,6 @@ class Server:
                 receive_thread = threading.Thread(target=self.get_interface(addr).receive_file,
                                                   args=(file_name, data_size))
                 receive_thread.start()
-                send_thread.join()
 
         fileSocket.close()
 
