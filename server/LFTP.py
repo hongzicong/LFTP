@@ -37,17 +37,20 @@ class Interface:
 
         self.has_construct = False
 
+        self.beginI = 0
+
     def receive_segment(self, delayTime):
         init_time = time.time()
         while True:
-            if self.segments.empty() != 0:
+            if self.beginI < len(self.segments):
                 if self.lockForSeg.acquire():
-                    seg = self.segments.get()
+                    seg = self.segments[self.beginI]
                     SYN, ACK, SEQ, FUNC, rtrwnd = list(map(int, seg.split(b"*")[0:5]))
                     data = seg[sum(map(len, seg.split(b"*")[0:5])) + 5:]
                     print("receive segment from %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d rtrwnd: %d" %
                           (self.addr[0], self.addr[1], SYN, ACK, SEQ, FUNC, rtrwnd))
                     self.lockForSeg.release()
+                    self.beginI += 1
                     return SYN, ACK, SEQ, FUNC, rtrwnd, data
             elif time.time() - init_time > delayTime:
                 raise socket.timeout
@@ -219,7 +222,8 @@ class Server:
         # Create a socket for use
         self.fileSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-        self.fileSocket.bind((socket.gethostbyname(socket.gethostname()), 5555))
+        # self.fileSocket.bind((socket.gethostbyname(socket.gethostname()), 5555))
+        self.fileSocket.bind(("127.0.0.1", 5555))
 
         self.fileSocket.setblocking(True)
 
@@ -231,7 +235,7 @@ class Server:
 
     def new_interface(self, addr, ACK, SEQ):
         #  New a buffer for the address
-        self.segmentsArr[addr] = queue.Queue()
+        self.segmentsArr[addr] = []
         clientInterface = Interface(self.fileSocket, addr, ACK, SEQ, self.segmentsArr[addr], self.lockForSeg)
         self.addr_info[addr] = clientInterface
 
@@ -246,7 +250,7 @@ class Server:
         seg, addr = self.fileSocket.recvfrom(4096)
         if addr in self.addr_info and self.addr_info[addr].has_construct:
             if self.lockForSeg.acquire():
-                self.segmentsArr[addr].put(seg)
+                self.segmentsArr[addr].append(seg)
                 self.lockForSeg.release()
                 return False, seg, addr
         return True, seg, addr
