@@ -133,6 +133,8 @@ class Interface:
                 data.append(temp)
             print("finish")
 
+            self.send_segment(0, self.ACK, self.SEQ, 0, b"%d" % len(data))
+
             # begin to send file
             print("send the file")
             self.beginSEQ = self.SEQ
@@ -248,9 +250,7 @@ class Server:
                 file_name = data.split(b" ")[0].decode("UTF-8")
                 print("send file %s to %s:%s" % (file_name, addr[0], addr[1]))
                 self.get_interface(addr).SEQ = ACK
-                self.get_interface(addr).ACK = SEQ + 1
-                self.get_interface(addr).send_segment(SYN, self.get_interface(addr).ACK, self.get_interface(addr).SEQ,
-                                                      FUNC, b"%d" % len(data))
+                self.get_interface(addr).ACK = SEQ + len(file_name)
                 self.get_interface(addr).send_file(file_name)
                 self.delete_interface(addr)
 

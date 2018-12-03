@@ -183,8 +183,9 @@ class Client:
 
         # send file name to server for send
         print("send the file name")
-        self.reliable_send_one_segment(SYN, FUNC, 0, serverName, port, b"%b" % (bytes(file_name, "UTF-8")))
+        self.reliable_send_one_segment(SYN, FUNC, serverName, port, b"%b" % (bytes(file_name, "UTF-8")))
         data_size = int(self.rtData)
+        print("data size is %d" % data_size)
 
         self.beginACK = self.ACK
         self.lastACKRead = self.ACK
