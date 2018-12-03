@@ -2,6 +2,8 @@
 import socket
 import random
 import threading
+from time import clock
+import math
 
 
 class Interface:
@@ -26,6 +28,7 @@ class Interface:
 
         # the size of congestion window
         self.cwnd = 1 * self.MSSlen
+        self.ssthresh = 8 * self.MSSlen
 
         # seg begin to send file
         self.beginSEQ = 0
@@ -115,7 +118,82 @@ class Interface:
 
     def send_file(self, file_name):
         with open(file_name, 'rb') as file:
-            pass
+
+            # split file into MSS
+            # data buffer
+            data = []
+            data_size = 0
+            print("begin to split file into MSS")
+            while True:
+                temp = file.read(self.MSSlen)
+                data_size += len(temp)
+                if temp == b'':
+                    break
+                data.append(temp)
+            print("finish")
+
+            # begin to send file
+            print("send the file")
+            self.beginSEQ = self.SEQ
+            delay_time = 2
+            self.cwnd = 1 * self.MSSlen
+            self.ssthresh = 8 * self.MSSlen
+            fastACK = 0
+            dupACKcount = 0
+            while True:
+                init_time = clock()
+
+                # pipeline
+                while (self.SEQ - self.rtACK) < min(self.cwnd, self.rtrwnd) \
+                        and math.ceil((self.SEQ - self.beginSEQ) / self.MSSlen) < len(data):
+                    temp_data = data[(self.SEQ - self.beginSEQ) // self.MSSlen]
+                    self.send_segment(0, self.ACK, self.SEQ, 1, 0, temp_data)
+                    self.SEQ += len(temp_data)
+
+                # flow control
+                if self.SEQ - self.rtACK >= self.rtrwnd:
+                    print("flow control")
+                    # check rwnd of the receiver
+                    self.send_segment(0, self.ACK, self.SEQ, 2, 0, b"flow")
+
+                # set timer
+                self.fileSocket.settimeout(1)
+                while True:
+                    try:
+                        rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, self.rtData, addr = self.receive_segment()
+                        # new ACK
+                        if self.rtACK != fastACK:
+                            self.cwnd = self.ssthresh
+                            fastACK = self.rtACK
+                            dupACKcount = 0
+                        else:
+                            dupACKcount += 1
+                            if dupACKcount == 3:
+                                self.ssthresh = self.cwnd / 2
+                                self.cwnd = self.ssthresh + 3 * self.MSSlen
+                    except socket.timeout as timeoutErr:
+                        pass
+                    if self.SEQ == self.rtACK:
+                        if self.cwnd < self.ssthresh:
+                            print("slow start")
+                            self.cwnd *= 2
+                        else:
+                            print("congestion avoidance")
+                            self.cwnd += 1 * self.MSSlen
+                        self.SEQ = self.rtACK
+                        break
+                    elif clock() - init_time > delay_time:
+                        self.drop_count += (1 + (self.SEQ - self.rtACK) // self.MSSlen)
+                        print("time out")
+                        self.SEQ = self.rtACK
+                        self.ssthresh = self.cwnd / 2
+                        self.cwnd = 1 * self.MSSlen
+                        break
+
+                # finish data transmission
+                if math.ceil((self.rtACK - self.beginSEQ) / self.MSSlen) == len(data):
+                    break
+
 
 class Server:
 
@@ -123,7 +201,8 @@ class Server:
         # Create a socket for use
         self.fileSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-        self.fileSocket.bind((socket.gethostbyname(socket.gethostname()), 5555))
+        # self.fileSocket.bind((socket.gethostbyname(socket.gethostname()), 5555))
+        self.fileSocket.bind(("127.0.0.1", 5555))
 
         self.fileSocket.setblocking(True)
 
@@ -135,6 +214,7 @@ class Server:
         self.addr_info[addr] = clientInterface
 
     def delete_interface(self, addr):
+        print("delete the interface")
         self.addr_info.pop(addr)
 
     def get_interface(self, addr):
@@ -162,7 +242,18 @@ class Server:
                 self.get_interface(addr).send_segment(SYN, rtACK, rtSEQ, 0, self.get_interface(addr).buffer_size)
 
             # SYN is 0 and already TCP construction
-            # FUNC 1
+            # FUNC 0 -- send file
+            elif FUNC == 0 and addr in self.addr_info:
+                file_name = data.split(b" ")[0].decode("UTF-8")
+                print("send file %s to %s:%s" % (file_name, addr[0], addr[1]))
+                self.get_interface(addr).ACK = SEQ + len(data)
+                self.get_interface(addr).send_segment(SYN, self.get_interface(addr).ACK, self.get_interface(addr).SEQ,
+                                                      FUNC, self.get_interface(addr).buffer_size)
+                self.get_interface(addr).send_file(file_name)
+                self.delete_interface(addr)
+
+            # SYN is 0 and already TCP construction
+            # FUNC 1 -- receive file
             elif FUNC == 1 and addr in server.addr_info:
                 file_name = data.split(b" ")[0].decode("UTF-8")
                 data_size = int(data.split(b" ")[1])
@@ -172,11 +263,6 @@ class Server:
                                                       FUNC, self.get_interface(addr).buffer_size)
                 self.get_interface(addr).receive_file(file_name, data_size)
                 self.delete_interface(addr)
-
-            # SYN is 0 and already TCP construction
-            # FUNC 0
-            elif FUNC == 0 and addr in self.addr_info:
-                self.get_interface(addr).send_file(data.split(b"*")[3])
 
         fileSocket.close()
 

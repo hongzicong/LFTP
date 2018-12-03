@@ -22,13 +22,14 @@ class Client:
         self.drop_count = 0
         self.lockForBuffer = threading.Lock()
         self.buffer = {}
-        self.buffer_size = 500 * self.MSSlen
+        self.buffer_size = 20 * self.MSSlen
 
         self.rwnd = self.buffer_size
         self.rtrwnd = 0
 
         # the size of congestion window
-        self.cwnd = 0
+        self.cwnd = 1 * self.MSSlen
+        self.ssthresh = 8 * self.MSSlen
 
         # seg begin to send file
         self.beginSEQ = 0
@@ -180,7 +181,7 @@ class Client:
 
         # send file name to server for send
         print("send the file name")
-        self.reliable_send_one_segment(SYN, FUNC, 1, serverName, port, b"%b" % (bytes(file_name, "UTF-8")))
+        self.reliable_send_one_segment(SYN, FUNC, 0, serverName, port, b"%b" % (bytes(file_name, "UTF-8")))
 
         self.beginACK = self.ACK
         self.lastACKRead = self.ACK
@@ -191,24 +192,24 @@ class Client:
         begin = 0
         end = data_size
         while True:
-            rtSYN, rtACK, rtSEQ, rtFUNC, rtrwnd, data, addr = self.receive_segment()
+            rtSYN, self.rtACK, self.rtSEQ, rtFUNC, rtrwnd, data, addr = self.receive_segment()
             if data == b"":
-                self.send_segment(rtSYN, rtSEQ + 1, self.SEQ, rtFUNC, self.rwnd, serverName, port)
-                continue
-            if rtFUNC == 2:
-                self.send_segment(rtSYN, rtSEQ, self.SEQ, rtFUNC, self.rwnd, serverName, port)
-                continue
+                self.ACK = self.rtSEQ + 1
+            elif rtFUNC == 2:
+                self.ACK = self.rtSEQ
             # write to the buffer only when receiver need
-            if (rtSEQ - self.beginACK) // self.MSSlen == begin:
+            elif self.ACK == self.rtSEQ:
                 if self.lockForBuffer.acquire():
                     self.buffer[begin] = data
                     begin += 1
                     self.rwnd -= len(data)
+                    self.ACK = self.rtSEQ + len(data)
                     self.lockForBuffer.release()
+            # answer
+            self.send_segment(rtSYN, self.ACK, 0, rtFUNC, self.rwnd)
             if begin == end:
                 print("finish receive file successfully")
-            # answer
-            self.send_segment(rtSYN, rtSEQ + len(data), 0, rtFUNC, self.rwnd, serverName, port)
+                break
 
     # The third handshake will be in charge of send_file function
     def handshake(self, serverName, port):
