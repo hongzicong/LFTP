@@ -79,9 +79,8 @@ class Interface:
                     if self.lockForBuffer.acquire():
                         print("read from buffer write into file")
                         file.write(self.buffer[begin])
-                        data_len = len(self.buffer[begin])
+                        self.rwnd += len(self.buffer[begin])
                         self.buffer.pop(begin)
-                        self.rwnd += data_len
                         begin += 1
                         self.lockForBuffer.release()
 
@@ -95,21 +94,19 @@ class Interface:
         begin = 0
         end = data_size
         while True:
-            rtSYN, rtACK, rtSEQ, rtFUNC, rtrwnd, data, addr = self.receive_segment()
+            rtSYN, self.rtACK, self.rtSEQ, rtFUNC, rtrwnd, data, addr = self.receive_segment()
             if data == b"":
-                self.send_segment(rtSYN, rtSEQ + 1, self.SEQ, rtFUNC, self.rwnd)
-                continue
-            if rtFUNC == 2:
-                self.send_segment(rtSYN, rtSEQ, self.SEQ, rtFUNC, self.rwnd)
-                continue
+                self.ACK = self.rtSEQ + 1
+            elif rtFUNC == 2:
+                self.ACK = self.rtSEQ
             # write to the buffer only when receiver need
-            if self.ACK == rtSEQ:
+            elif self.ACK == self.rtSEQ:
                 if self.lockForBuffer.acquire():
                     self.buffer[begin] = data
                     begin += 1
                     self.rwnd -= len(data)
+                    self.ACK = self.rtSEQ + len(data)
                     self.lockForBuffer.release()
-                    self.ACK = rtSEQ + len(data)
             # answer
             self.send_segment(rtSYN, self.ACK, 0, rtFUNC, self.rwnd)
             if begin == end:
