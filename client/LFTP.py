@@ -103,7 +103,6 @@ class Client:
         self.ssthresh = 8 * self.MSSlen
         fastACK = 0
         dupACKcount = 0
-        print(len(data))
         while True:
             init_time = time.time()
 

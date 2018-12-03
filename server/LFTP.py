@@ -37,7 +37,8 @@ class Interface:
 
         self.has_construct = False
 
-    def receive_segment(self):
+    def receive_segment(self, delayTime):
+        init_time = time.time()
         while True:
             if len(self.segments) != 0:
                 if self.lockForSeg.acquire():
@@ -48,20 +49,22 @@ class Interface:
                           (self.addr[0], self.addr[1], SYN, ACK, SEQ, FUNC, rtrwnd))
                     self.lockForSeg.release()
                     return SYN, ACK, SEQ, FUNC, rtrwnd, data
+            elif time.time() - init_time > delayTime:
+                raise socket.timeout
+
 
     def send_segment(self, SYN, ACK, SEQ, FUNC, data=b""):
         # * is the character used to split
         self.fileSocket.sendto(b"%d*%d*%d*%d*%d*%b" % (SYN, ACK, SEQ, FUNC, self.rwnd, data), self.addr)
         print("send segment to %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d rwnd: %d" % (self.addr[0], self.addr[1], SYN, ACK, SEQ, FUNC, self.rwnd))
 
-    def reliable_send_one_segment(self, SYN, FUNC, serverName, port, data=b""):
+    def reliable_send_one_segment(self, SYN, FUNC, data=b""):
         dataComplete = False
         delayTime = 1
         while not dataComplete:
             self.send_segment(SYN, self.ACK, self.SEQ, FUNC, data)
-            self.fileSocket.settimeout(delayTime)
             try:
-                rtSYN, self.rtACK, self.rtSEQ, rtFUNC, self.rtrwnd, rtData = self.receive_segment()
+                rtSYN, self.rtACK, self.rtSEQ, rtFUNC, self.rtrwnd, rtData = self.receive_segment(delayTime)
 
                 # TCP construction
                 if len(data) == 0 and self.rtACK == self.SEQ + 1:
@@ -111,7 +114,6 @@ class Interface:
         begin = 0
         end = data_size
         while True:
-            self.fileSocket.setblocking(True)
             rtSYN, self.rtACK, self.rtSEQ, rtFUNC, rtrwnd, data = self.receive_segment()
             if data == b"":
                 self.ACK = self.rtSEQ + 1
@@ -174,10 +176,9 @@ class Interface:
                     self.send_segment(0, self.ACK, self.SEQ, 2, b"flow")
 
                 # set timer
-                self.fileSocket.settimeout(1)
                 while True:
                     try:
-                        rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, self.rtData = self.receive_segment()
+                        rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, self.rtData = self.receive_segment(1)
                         # new ACK
                         if self.rtACK != fastACK:
                             self.cwnd = self.ssthresh
@@ -219,7 +220,8 @@ class Server:
         # Create a socket for use
         self.fileSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-        self.fileSocket.bind((socket.gethostbyname(socket.gethostname()), 5555))
+        # self.fileSocket.bind((socket.gethostbyname(socket.gethostname()), 5555))
+        self.fileSocket.bind(("127.0.0.1", 5555))
 
         self.fileSocket.setblocking(True)
 
@@ -252,7 +254,6 @@ class Server:
         return True, seg, addr
 
     def listen(self):
-        self.fileSocket.setblocking(True)
         while True:
             first, seg, addr = self.receive_segment()
             if not first:
@@ -277,6 +278,7 @@ class Server:
                 print("send file %s to %s:%s" % (file_name, addr[0], addr[1]))
                 self.get_interface(addr).SEQ = ACK
                 self.get_interface(addr).ACK = SEQ + len(file_name)
+                self.get_interface(addr).has_construct = True
                 send_thread = threading.Thread(target=self.get_interface(addr).send_file,
                                                args=(file_name,))
                 send_thread.start()
@@ -289,6 +291,7 @@ class Server:
                 print("receive file %s from %s:%s" % (file_name, addr[0], addr[1]))
                 self.get_interface(addr).SEQ = ACK
                 self.get_interface(addr).ACK = SEQ + len(data)
+                self.get_interface(addr).has_construct = True
                 receive_thread = threading.Thread(target=self.get_interface(addr).receive_file,
                                                   args=(file_name, data_size))
                 receive_thread.start()
