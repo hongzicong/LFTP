@@ -2,7 +2,7 @@
 import socket
 import sys
 import threading
-from time import clock
+import time
 import math
 
 
@@ -11,8 +11,6 @@ class Client:
     def __init__(self):
         # Create a socket for use
         self.fileSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # self.fileSocket.bind((socket.gethostbyname(socket.gethostname()), 5555))
-        self.fileSocket.bind(("127.0.0.1", 8888))
 
         self.MSSlen = 1000
 
@@ -107,7 +105,7 @@ class Client:
         dupACKcount = 0
         print(len(data))
         while True:
-            init_time = clock()
+            init_time = time.time()
 
             # pipeline
             while (self.SEQ - self.rtACK) < min(self.cwnd, self.rtrwnd) \
@@ -148,7 +146,7 @@ class Client:
                         self.cwnd += 1 * self.MSSlen
                     self.SEQ = self.rtACK
                     break
-                elif clock() - init_time > delay_time:
+                elif time.time() - init_time > delay_time:
                     self.drop_count += (1 + (self.SEQ - self.rtACK) // self.MSSlen)
                     print("time out")
                     self.SEQ = self.rtACK
@@ -199,6 +197,7 @@ class Client:
         begin = 0
         end = data_size
         while True:
+            self.fileSocket.setblocking(True)
             rtSYN, self.rtACK, self.rtSEQ, rtFUNC, rtrwnd, data, addr = self.receive_segment()
             if data == b"":
                 self.ACK = self.rtSEQ + 1
