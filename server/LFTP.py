@@ -89,6 +89,9 @@ class Interface:
                         self.lockForBuffer.release()
 
     def receive_file(self, file_name, data_size):
+
+        self.send_segment(0, self.ACK, self.SEQ, 1)
+
         self.beginACK = self.ACK
         self.lastACKRead = self.ACK
 
@@ -252,8 +255,10 @@ class Server:
                 print("send file %s to %s:%s" % (file_name, addr[0], addr[1]))
                 self.get_interface(addr).SEQ = ACK
                 self.get_interface(addr).ACK = SEQ + len(file_name)
-                self.get_interface(addr).send_file(file_name)
-                self.delete_interface(addr)
+                send_thread = threading.Thread(target=self.get_interface(addr).send_file,
+                                               args=file_name)
+                send_thread.start()
+                send_thread.join()
 
             # SYN is 0 and already TCP construction
             # FUNC 1 -- receive file
@@ -261,12 +266,15 @@ class Server:
                 file_name = data.split(b" ")[0].decode("UTF-8")
                 data_size = int(data.split(b" ")[1])
                 print("receive file %s from %s:%s" % (file_name, addr[0], addr[1]))
+                self.get_interface(addr).SEQ = ACK
                 self.get_interface(addr).ACK = SEQ + len(data)
-                self.get_interface(addr).send_segment(SYN, self.get_interface(addr).ACK, self.get_interface(addr).SEQ, FUNC)
-                self.get_interface(addr).receive_file(file_name, data_size)
-                self.delete_interface(addr)
+                receive_thread = threading.Thread(target=self.get_interface(addr).receive_file,
+                                                  args=(file_name, data_size))
+                receive_thread.start()
+                send_thread.join()
 
         fileSocket.close()
+
 
 if __name__ == "__main__":
 
