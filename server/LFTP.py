@@ -19,7 +19,7 @@ class Interface:
         self.drop_count = 0
         self.lockForBuffer = threading.Lock()
         self.buffer = {}
-        self.buffer_size = 8 * self.MSSlen
+        self.buffer_size = 20 * self.MSSlen
 
         self.rwnd = self.buffer_size
         self.rtrwnd = 0
@@ -49,7 +49,7 @@ class Interface:
             self.send_segment(SYN, ACK, SEQ, FUNC, rtrwnd, serverName, port, data)
             self.fileSocket.settimeout(delayTime)
             try:
-                rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receive_segment()
+                rtSYN, self.rtACK, self.rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receive_segment()
 
                 # TCP construction
                 if len(data) == 0 and self.rtACK == self.clientSEQ + 1:
@@ -103,16 +103,17 @@ class Interface:
                 self.send_segment(rtSYN, rtSEQ, self.SEQ, rtFUNC, self.rwnd)
                 continue
             # write to the buffer only when receiver need
-            if (rtSEQ - self.beginACK) // self.MSSlen == begin:
+            if self.ACK == rtSEQ:
                 if self.lockForBuffer.acquire():
                     self.buffer[begin] = data
                     begin += 1
                     self.rwnd -= len(data)
                     self.lockForBuffer.release()
+                    self.ACK = rtSEQ + len(data)
             if begin == end:
                 print("finish receive file successfully")
             # answer
-            self.send_segment(rtSYN, rtSEQ + len(data), 0, rtFUNC, self.rwnd)
+            self.send_segment(rtSYN, self.ACK, 0, rtFUNC, self.rwnd)
 
     def send_file(self, file_name):
         with open(file_name, 'rb') as file:

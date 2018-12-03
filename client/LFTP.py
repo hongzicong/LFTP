@@ -12,6 +12,7 @@ class Client:
         self.fileSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.MSSlen = 1000
 
+        self.rtData = b""
         self.rtSEQ = 0
         self.rtACK = 0
         self.ACK = 0
@@ -20,7 +21,7 @@ class Client:
         self.drop_count = 0
         self.lockForBuffer = threading.Lock()
         self.buffer = {}
-        self.buffer_size = 80 * self.MSSlen
+        self.buffer_size = 100 * self.MSSlen
 
         self.rwnd = self.buffer_size
         self.rtrwnd = 0
@@ -37,14 +38,14 @@ class Client:
         self.fileSocket.sendto(b"%d*%d*%d*%d*%d*%b" % (SYN, ACK, SEQ, FUNC, rtrwnd, data), (serverName, port))
         print("send segment to %s:%d --- SYN: %d ACK: %d SEQ: %d FUNC: %d rtrwnd: %d" % (serverName, port, SYN, ACK, SEQ, FUNC, rtrwnd))
 
-    def reliable_send_one_segment(self, SYN, ACK, SEQ, FUNC, rtrwnd, serverName, port, data=b""):
+    def reliable_send_one_segment(self, SYN, FUNC, rtrwnd, serverName, port, data=b""):
         dataComplete = False
         delayTime = 1
         while not dataComplete:
-            self.send_segment(SYN, ACK, SEQ, FUNC, rtrwnd, serverName, port, data)
+            self.send_segment(SYN, self.ACK, self.SEQ, FUNC, rtrwnd, serverName, port, data)
             self.fileSocket.settimeout(delayTime)
             try:
-                rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receive_segment()
+                rtSYN, self.rtACK, self.rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receive_segment()
 
                 # TCP construction
                 if len(data) == 0 and self.rtACK == self.SEQ + 1:
@@ -71,9 +72,6 @@ class Client:
     def send_file(self, serverName, port, file, file_name):
 
         SYN = 0
-        # ACK is useless so we set it as 0
-        ACK = 0
-        SEQ = self.SEQ
         FUNC = 1
 
         # split file into MSS
@@ -91,8 +89,7 @@ class Client:
 
         # send file name and data size to server for send
         print("send the file name and data size")
-        self.reliable_send_one_segment(SYN, ACK, SEQ, FUNC, 0, serverName, port,
-                                    b"%b %d" % (bytes(file_name, "UTF-8"), len(data)))
+        self.reliable_send_one_segment(SYN, FUNC, 0, serverName, port, b"%b %d" % (bytes(file_name, "UTF-8"), len(data)))
 
         # begin to send file
         print("send the file")
@@ -109,20 +106,20 @@ class Client:
             while (self.SEQ - self.rtACK) < min(self.cwnd, self.rtrwnd) \
                     and (self.SEQ - self.beginSEQ) // self.MSSlen < len(data):
                 temp_data = data[(self.SEQ - self.beginSEQ) // self.MSSlen]
-                self.send_segment(SYN, ACK, self.SEQ, 1, 0, serverName, port, temp_data)
+                self.send_segment(SYN, self.ACK, self.SEQ, 1, 0, serverName, port, temp_data)
                 self.SEQ += len(temp_data)
 
             # flow control
             if self.SEQ - self.rtACK >= self.rtrwnd:
                 print("flow control")
                 # check rwnd of the receiver
-                self.send_segment(SYN, ACK, self.SEQ, 2, 0, serverName, port, b"flow")
+                self.send_segment(SYN, self.ACK, self.SEQ, 2, 0, serverName, port, b"flow")
 
             # set timer
             self.fileSocket.settimeout(1)
             while True:
                 try:
-                    rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, rtData, addr = self.receive_segment()
+                    rtSYN, self.rtACK, rtSEQ, rtFUNC, self.rtrwnd, self.rtData, addr = self.receive_segment()
                     # new ACK
                     if self.rtACK != fastACK:
                         self.cwnd = self.ssthresh
@@ -176,6 +173,14 @@ class Client:
                         self.lockForBuffer.release()
 
     def receive_file(self, serverName, port, file_name, data_size):
+
+        SYN = 0
+        FUNC = 1
+
+        # send file name to server for send
+        print("send the file name")
+        self.reliable_send_one_segment(SYN, FUNC, 1, serverName, port, b"%b" % (bytes(file_name, "UTF-8")))
+
         self.beginACK = self.ACK
         self.lastACKRead = self.ACK
 
@@ -206,27 +211,22 @@ class Client:
 
     # The third handshake will be in charge of send_file function
     def handshake(self, serverName, port):
-        # First handshake
-        # For safety, seq is picked randomly
         SYN = 1
-        ACK = 1
-        SEQ = self.SEQ
-
-        self.reliable_send_one_segment(SYN, ACK, SEQ, 0, 0, serverName, port)
-
+        # First handshake
+        self.reliable_send_one_segment(SYN, 0, 0, serverName, port)
         return True
 
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 5:
-        print("Argument number should be 4 instead of %d" % (len(sys.argv) - 1))
+    if len(sys.argv) != 4:
+        print("Argument number should be 3 instead of %d" % (len(sys.argv) - 1))
         sys.exit(1)
 
     funcName = sys.argv[1]
     serverName = sys.argv[2]
-    port = int(sys.argv[3])
-    file_name = sys.argv[4]
+    port = 5555
+    file_name = sys.argv[3]
     client = Client()
 
     if funcName == "lsend":
@@ -235,6 +235,7 @@ if __name__ == "__main__":
             if client.handshake(serverName, port):
                 print("TCP construct successfully")
                 client.send_file(serverName, port, file, file_name)
+                print("File send successfully")
                 print("%d packet have been dropped" % client.drop_count)
 
     elif funcName == "lget":
