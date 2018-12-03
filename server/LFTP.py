@@ -110,10 +110,11 @@ class Interface:
                     self.rwnd -= len(data)
                     self.lockForBuffer.release()
                     self.ACK = rtSEQ + len(data)
-            if begin == end:
-                print("finish receive file successfully")
             # answer
             self.send_segment(rtSYN, self.ACK, 0, rtFUNC, self.rwnd)
+            if begin == end:
+                print("finish receive file successfully")
+                break
 
     def send_file(self, file_name):
         with open(file_name, 'rb') as file:

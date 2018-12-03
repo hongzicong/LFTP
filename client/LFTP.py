@@ -21,7 +21,7 @@ class Client:
         self.drop_count = 0
         self.lockForBuffer = threading.Lock()
         self.buffer = {}
-        self.buffer_size = 100 * self.MSSlen
+        self.buffer_size = 500 * self.MSSlen
 
         self.rwnd = self.buffer_size
         self.rtrwnd = 0
