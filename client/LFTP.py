@@ -3,6 +3,7 @@ import socket
 import sys
 import threading
 from time import clock
+import math
 
 
 class Client:
@@ -104,7 +105,7 @@ class Client:
 
             # pipeline
             while (self.SEQ - self.rtACK) < min(self.cwnd, self.rtrwnd) \
-                    and (self.SEQ - self.beginSEQ) // self.MSSlen < len(data):
+                    and math.ceil((self.SEQ - self.beginSEQ) / self.MSSlen) < len(data):
                 temp_data = data[(self.SEQ - self.beginSEQ) // self.MSSlen]
                 self.send_segment(SYN, self.ACK, self.SEQ, 1, 0, serverName, port, temp_data)
                 self.SEQ += len(temp_data)
@@ -150,7 +151,7 @@ class Client:
                     break
 
             # finish data transmission
-            if (self.rtACK - self.beginSEQ) // self.MSSlen == len(data):
+            if math.ceil((self.rtACK - self.beginSEQ) / self.MSSlen) == len(data):
                 break
 
     def read_into_file(self, file_name, data_size):
